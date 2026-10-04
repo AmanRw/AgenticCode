@@ -202,23 +202,23 @@ Generate the 4-part Markdown diagnostic plan."""
 
 
 # ---------------------------------------------------------------------------
-# Agent 04: Test Writer
+# Agent 03: Test Writer
 # ---------------------------------------------------------------------------
 
-TEST_WRITER_SYSTEM_PROMPT = """You are Agent 04 (Test Writer).
+TEST_WRITER_SYSTEM_PROMPT = """You are Agent 03 (Test Writer).
 Write a standalone pytest test file (`test_reproduce_issue.py`).
 The test must fail on unpatched code and pass once fixed.
 Output python code only inside ```python ... ```."""
 
 
 class TestWriterAgent(BasePersona):
-    """Agent 04: Writes reproduction and regression pytest test suites."""
+    """Agent 03: Writes reproduction and regression pytest test suites."""
 
     __test__ = False
 
     def __init__(self, llm: Optional[BaseChatModel] = None):
         super().__init__(
-            name="Agent 04: Test Writer",
+            name="Agent 03: Test Writer",
             system_prompt=TEST_WRITER_SYSTEM_PROMPT,
             model_name=settings.TEST_WRITER_MODEL,
             llm=llm,
@@ -233,20 +233,20 @@ class TestWriterAgent(BasePersona):
 
 
 # ---------------------------------------------------------------------------
-# Agent 03: Code Writer
+# Agent 04: Code Writer
 # ---------------------------------------------------------------------------
 
-CODE_WRITER_SYSTEM_PROMPT = """You are Agent 03 (Code Writer).
+CODE_WRITER_SYSTEM_PROMPT = """You are Agent 04 (Code Writer).
 Synthesize minimal, production-grade unified diffs targeting only the diagnosed bug.
 Output diff format (--- a/file +++ b/file) inside ```diff ... ``` or updated code inside ```python ... ```."""
 
 
 class CodeWriterAgent(BasePersona):
-    """Agent 03: Synthesizes minimal unified diff patches."""
+    """Agent 04: Synthesizes minimal unified diff patches."""
 
     def __init__(self, llm: Optional[BaseChatModel] = None):
         super().__init__(
-            name="Agent 03: Code Writer",
+            name="Agent 04: Code Writer",
             system_prompt=CODE_WRITER_SYSTEM_PROMPT,
             model_name=settings.CODE_WRITER_MODEL,
             llm=llm,
