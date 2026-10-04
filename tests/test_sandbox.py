@@ -5,8 +5,7 @@ Tests for Docker Sandbox Engine and Fallback Sandbox.
 import sys
 import tempfile
 
-from agentic_code.sandbox.fallback import LocalSubprocessSandbox
-from agentic_code.sandbox.sandbox import DockerSandbox
+from agentic_code.sandbox import DockerSandbox, LocalSubprocessSandbox
 
 
 def test_sandbox_config():

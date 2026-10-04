@@ -5,15 +5,11 @@ Tests for Phase 3 Code Retrieval and AST Analysis tools.
 import tempfile
 from pathlib import Path
 
-from agentic_code.tools.ast_tools import (
+from agentic_code.tools import (
+    build_repository_call_graph,
     extract_code_snippet,
     extract_symbols_from_source,
     generate_repository_symbol_outline,
-)
-from agentic_code.tools.graph_tools import (
-    build_repository_call_graph,
-)
-from agentic_code.tools.search_tools import (
     search_codebase,
     search_traceback_symbols,
 )

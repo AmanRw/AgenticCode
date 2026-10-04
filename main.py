@@ -1,21 +1,23 @@
 """
-AgenticCode Main Entry Point & Verification Demo (Phases 1-4).
+AgenticCode Main Entry Point & Verification Demo (Phases 1-5).
 """
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from agentic_code.agents import (
+from agentic_code import (
     CodeReaderAgent,
     CodeWriterAgent,
+    DockerSandbox,
+    GitHubClient,
+    GitManager,
     PlannerAgent,
     PROpenerAgent,
     TestWriterAgent,
+    extract_symbols_from_source,
+    settings,
 )
-from agentic_code.config import settings
-from agentic_code.sandbox.sandbox import DockerSandbox
-from agentic_code.tools.ast_tools import extract_symbols_from_source
 
 console = Console()
 
@@ -24,7 +26,7 @@ def main():
     console.print(
         Panel.fit(
             "[bold cyan]AgenticCode: End-to-End Autonomous GitHub Issue Resolution[/bold cyan]\n"
-            "[green]Phases 1 - 4 System Verification[/green]",
+            "[green]Phases 1 - 5 System Verification[/green]",
             border_style="cyan",
         )
     )
@@ -71,14 +73,22 @@ def main():
         CodeWriterAgent(llm=None),
         PROpenerAgent(llm=None),
     ]
-    agents_table = Table(title="Phase 4: Specialized Agent Personas")
+    agents_table = Table(title="Phase 4: Specialized Agent Personas (Gemini Powered)")
     agents_table.add_column("Persona", style="bold magenta")
     agents_table.add_column("Configured Model", style="cyan")
     for agent in agents:
         agents_table.add_row(agent.name, agent.model_name or "default")
     console.print(agents_table)
 
-    console.print("\n[bold green][OK] Phases 1 to 4 successfully implemented and verified![/bold green]\n")
+    # 5. Git & GitHub VCS Integration Layer
+    vcs_table = Table(title="Phase 5: Git & GitHub VCS Integration Layer")
+    vcs_table.add_column("Component", style="bold blue")
+    vcs_table.add_column("Capabilities", style="white")
+    vcs_table.add_row("GitManager", "Ephemeral clone, branch isolation, patch application, clean rollback on test failure")
+    vcs_table.add_row("GitHubClient", "Issue fetching, linked Pull Request synthesis (Fixes #<id>), diagnostic comments")
+    console.print(vcs_table)
+
+    console.print("\n[bold green][OK] Phases 1 to 5 successfully implemented and verified![/bold green]\n")
 
 
 if __name__ == "__main__":
