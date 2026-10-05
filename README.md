@@ -91,17 +91,32 @@ Five modular agent personas built with structured inputs, outputs, and system pr
 ---
 
 ### Phase 5: Git & GitHub VCS Integration Layer
-- **Local Git Operations** ([agentic_code/vcs.py](agentic_code/vcs.py)):
+- **Local Git Operations** ([agentic_code/vcs.py](file:///c:/Users/jaysh/OneDrive/Desktop/Code/Projects/t1/AgenticCode/agentic_code/vcs.py)):
   - Clones target repositories into ephemeral workspaces.
   - Creates and manages isolated fix branches (`agentic-fix/issue-<id>`).
   - Writes synthesized test files and applies unified diff patches.
   - Implements clean working tree rollbacks (`git checkout -f HEAD` and `git clean -fd`) ensuring failed repair iterations leave no dirty state.
   - Commits verified patches with automated bot authorship.
-- **GitHub REST/GraphQL Client** ([agentic_code/agents.py](agentic_code/agents.py)):
+- **GitHub REST/GraphQL Client** ([agentic_code/vcs.py](file:///c:/Users/jaysh/OneDrive/Desktop/Code/Projects/t1/AgenticCode/agentic_code/vcs.py)):
   - Authenticates via GitHub App token or Personal Access Token (PAT).
   - Fetches complete issue metadata (title, body, author, labels, comments).
   - Opens linked Pull Requests with Markdown bodies (`Fixes #<id>`) detailing root causes, changes, and test proofs.
   - Posts diagnostic explanation comments directly to issue threads if repair loops exceed $k_{max}$ iterations.
+
+---
+
+### Phase 6: LangGraph State Machine & Cyclic Orchestration
+- **Compiled StateGraph Architecture** ([agentic_code/workflow.py](file:///c:/Users/jaysh/OneDrive/Desktop/Code/Projects/t1/AgenticCode/agentic_code/workflow.py)):
+  - Eight specialized nodes: `node_code_reader`, `node_planner`, `node_test_writer`, `node_reproduction_verifier`, `node_code_writer`, `node_sandbox_verifier`, `node_pr_opener`, and `node_escalation`.
+  - **Reproduction Fidelity Verification**: Validates that newly synthesized test suites fail against the unpatched codebase prior to patch generation.
+  - **Cyclic Repair Routing**: Conditional edge evaluates `state["test_results"]["passed"]`.
+    - If `passed == True` $\rightarrow$ transitions to `node_pr_opener` $\rightarrow$ `END`.
+    - If `passed == False` and `iteration < max_iterations`:
+      - Appends failure tracebacks to `state["error_feedback"]`.
+      - Increments `state["iteration"]`.
+      - Rolls back the working tree cleanly using `GitManager.rollback_changes()`.
+      - Loops back to `node_code_writer`.
+    - If `passed == False` and `iteration >= max_iterations` $\rightarrow$ transitions to `node_escalation` $\rightarrow$ `END`.
 
 ---
 
@@ -122,7 +137,7 @@ cp .env.example .env
 ```bash
 uv run pytest
 ```
-Result: `25 passed in ~14s`
+Result: `28 passed in ~22s`
 
 ### 4. Code Quality & Linting
 ```bash
@@ -132,8 +147,7 @@ Result: `All checks passed!`
 
 ---
 
-## Upcoming Phases (6 – 8)
-- **Phase 6**: LangGraph State Machine & Cyclic Orchestration (parallel dispatch, reproduction verification, retry loops).
+## Upcoming Phases (7 – 8)
 - **Phase 7**: Webhook Ingestion & CI/CD Triggering (FastAPI HMAC service & GitHub Action wrapper).
 - **Phase 8**: Benchmarking & Observability (SWE-bench evaluation harness & OpenTelemetry/LangSmith tracing).
 

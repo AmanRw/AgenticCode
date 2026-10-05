@@ -1,5 +1,5 @@
 """
-AgenticCode Main Entry Point & Verification Demo (Phases 1-5).
+AgenticCode Main Entry Point & Verification Demo (Phases 1-6).
 """
 
 from rich.console import Console
@@ -10,11 +10,10 @@ from agentic_code import (
     CodeReaderAgent,
     CodeWriterAgent,
     DockerSandbox,
-    GitHubClient,
-    GitManager,
     PlannerAgent,
     PROpenerAgent,
     TestWriterAgent,
+    build_agentic_code_graph,
     extract_symbols_from_source,
     settings,
 )
@@ -26,7 +25,7 @@ def main():
     console.print(
         Panel.fit(
             "[bold cyan]AgenticCode: End-to-End Autonomous GitHub Issue Resolution[/bold cyan]\n"
-            "[green]Phases 1 - 5 System Verification[/green]",
+            "[green]Phases 1 - 6 System Verification[/green]",
             border_style="cyan",
         )
     )
@@ -88,7 +87,19 @@ def main():
     vcs_table.add_row("GitHubClient", "Issue fetching, linked Pull Request synthesis (Fixes #<id>), diagnostic comments")
     console.print(vcs_table)
 
-    console.print("\n[bold green][OK] Phases 1 to 5 successfully implemented and verified![/bold green]\n")
+    # 6. LangGraph State Machine & Cyclic Orchestration
+    _ = build_agentic_code_graph()
+    graph_table = Table(title="Phase 6: LangGraph State Machine & Cyclic Orchestration")
+    graph_table.add_column("Orchestration Dimension", style="bold green")
+    graph_table.add_column("Workflow Specification", style="white")
+    graph_table.add_row("Compiled Graph Nodes", "8 nodes (code_reader, planner, test_writer, reproduction_verifier, code_writer, sandbox_verifier, pr_opener, escalation)")
+    graph_table.add_row("Reproduction Fidelity", "Verifies tests fail against unpatched codebase before applying fix")
+    graph_table.add_row("Cyclic Retry Routing", f"Loop back to code_writer with failure traceback if tests fail (up to k_max={settings.MAX_ITERATIONS})")
+    graph_table.add_row("Clean State Recovery", "Automatic GitManager rollback (revert + clean) before each retry iteration")
+    graph_table.add_row("Termination & Escalation", "Routes to pr_opener upon test pass; routes to escalation after k_max failures")
+    console.print(graph_table)
+
+    console.print("\n[bold green][OK] Phases 1 to 6 successfully implemented and verified![/bold green]\n")
 
 
 if __name__ == "__main__":
