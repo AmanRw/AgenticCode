@@ -91,13 +91,13 @@ Five modular agent personas built with structured inputs, outputs, and system pr
 ---
 
 ### Phase 5: Git & GitHub VCS Integration Layer
-- **Local Git Operations** ([agentic_code/vcs.py](file:///c:/Users/jaysh/OneDrive/Desktop/Code/Projects/t1/AgenticCode/agentic_code/vcs.py)):
+- **Local Git Operations** ([agentic_code/vcs.py](AgenticCode/agentic_code/vcs.py)):
   - Clones target repositories into ephemeral workspaces.
   - Creates and manages isolated fix branches (`agentic-fix/issue-<id>`).
   - Writes synthesized test files and applies unified diff patches.
   - Implements clean working tree rollbacks (`git checkout -f HEAD` and `git clean -fd`) ensuring failed repair iterations leave no dirty state.
   - Commits verified patches with automated bot authorship.
-- **GitHub REST/GraphQL Client** ([agentic_code/vcs.py](file:///c:/Users/jaysh/OneDrive/Desktop/Code/Projects/t1/AgenticCode/agentic_code/vcs.py)):
+- **GitHub REST/GraphQL Client** ([agentic_code/vcs.py](AgenticCode/agentic_code/vcs.py)):
   - Authenticates via GitHub App token or Personal Access Token (PAT).
   - Fetches complete issue metadata (title, body, author, labels, comments).
   - Opens linked Pull Requests with Markdown bodies (`Fixes #<id>`) detailing root causes, changes, and test proofs.
@@ -106,7 +106,7 @@ Five modular agent personas built with structured inputs, outputs, and system pr
 ---
 
 ### Phase 6: LangGraph State Machine & Cyclic Orchestration
-- **Compiled StateGraph Architecture** ([agentic_code/workflow.py](file:///c:/Users/jaysh/OneDrive/Desktop/Code/Projects/t1/AgenticCode/agentic_code/workflow.py)):
+- **Compiled StateGraph Architecture** ([agentic_code/workflow.py](AgenticCode/agentic_code/workflow.py)):
   - Eight specialized nodes: `node_code_reader`, `node_planner`, `node_test_writer`, `node_reproduction_verifier`, `node_code_writer`, `node_sandbox_verifier`, `node_pr_opener`, and `node_escalation`.
   - **Reproduction Fidelity Verification**: Validates that newly synthesized test suites fail against the unpatched codebase prior to patch generation.
   - **Cyclic Repair Routing**: Conditional edge evaluates `state["test_results"]["passed"]`.
