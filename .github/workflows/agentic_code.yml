@@ -1,0 +1,33 @@
+name: AgenticCode Autonomous Issue Resolution
+
+on:
+  issues:
+    types: [opened, labeled]
+  issue_comment:
+    types: [created]
+
+jobs:
+  resolve-issue:
+    # Trigger if issue is labeled 'agentic-fix' or issue comment starts with /fix
+    if: >
+      (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'agentic-fix')) ||
+      (github.event_name == 'issue_comment' && startsWith(github.event.comment.body, '/fix'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run AgenticCode Action
+        uses: ./
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          issue_number: ${{ github.event.issue.number }}
+          max_iterations: 3

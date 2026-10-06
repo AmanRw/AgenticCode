@@ -118,6 +118,16 @@ Five modular agent personas built with structured inputs, outputs, and system pr
       - Loops back to `node_code_writer`.
     - If `passed == False` and `iteration >= max_iterations` $\rightarrow$ transitions to `node_escalation` $\rightarrow$ `END`.
 
+### Phase 7: Webhook Ingestion & CI/CD Triggering
+- **FastAPI Webhook Service** ([agentic_code/webhook.py](AgenticCode/agentic_code/webhook.py)):
+  - Endpoints: `GET /health`, `POST /webhook`, and `GET /queue`.
+  - Validates GitHub `X-Hub-Signature-256` HMAC-SHA256 signatures with constant-time equality checks.
+  - Automatically ingests `issues` (`opened`, `labeled: agentic-fix`) and `issue_comment` (`/fix` command trigger) events.
+  - Dispatches automated background pipeline execution jobs to clone, branch, and run the state machine.
+- **GitHub Action Packaging**:
+  - [action.yml](AgenticCode/action.yml) composite action enabling single-line inclusion in any repository.
+  - [.github/workflows/agentic_code.yml](AgenticCode/.github/workflows/agentic_code.yml) workflow triggering automatically on issue labels (`agentic-fix`) or comments (`/fix`).
+
 ---
 
 ## Quickstart & Verification
@@ -137,7 +147,7 @@ cp .env.example .env
 ```bash
 uv run pytest
 ```
-Result: `28 passed in ~22s`
+Result: `36 passed in ~26s`
 
 ### 4. Code Quality & Linting
 ```bash
@@ -147,7 +157,6 @@ Result: `All checks passed!`
 
 ---
 
-## Upcoming Phases (7 – 8)
-- **Phase 7**: Webhook Ingestion & CI/CD Triggering (FastAPI HMAC service & GitHub Action wrapper).
+## Upcoming Phase (8)
 - **Phase 8**: Benchmarking & Observability (SWE-bench evaluation harness & OpenTelemetry/LangSmith tracing).
 

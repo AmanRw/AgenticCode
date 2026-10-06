@@ -22,6 +22,7 @@ from agentic_code.tools import (
     search_traceback_symbols,
 )
 from agentic_code.vcs import GitHubClient, GitHubClientError, GitManager, GitOperationError
+from agentic_code.webhook import app, execute_pipeline_task, verify_github_signature
 from agentic_code.workflow import (
     build_agentic_code_graph,
     node_code_reader,
@@ -81,4 +82,8 @@ __all__ = [
     "node_pr_opener",
     "node_escalation",
     "route_after_verification",
+    # Webhook (Phase 7)
+    "app",
+    "verify_github_signature",
+    "execute_pipeline_task",
 ]

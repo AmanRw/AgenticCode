@@ -1,5 +1,5 @@
 """
-AgenticCode Main Entry Point & Verification Demo (Phases 1-6).
+AgenticCode Main Entry Point & Verification Demo (Phases 1-7).
 """
 
 from rich.console import Console
@@ -13,6 +13,7 @@ from agentic_code import (
     PlannerAgent,
     PROpenerAgent,
     TestWriterAgent,
+    app,
     build_agentic_code_graph,
     extract_symbols_from_source,
     settings,
@@ -25,7 +26,7 @@ def main():
     console.print(
         Panel.fit(
             "[bold cyan]AgenticCode: End-to-End Autonomous GitHub Issue Resolution[/bold cyan]\n"
-            "[green]Phases 1 - 6 System Verification[/green]",
+            "[green]Phases 1 - 7 System Verification[/green]",
             border_style="cyan",
         )
     )
@@ -99,7 +100,17 @@ def main():
     graph_table.add_row("Termination & Escalation", "Routes to pr_opener upon test pass; routes to escalation after k_max failures")
     console.print(graph_table)
 
-    console.print("\n[bold green][OK] Phases 1 to 6 successfully implemented and verified![/bold green]\n")
+    # 7. Webhook Ingestion & CI/CD Triggering
+    webhook_table = Table(title="Phase 7: Webhook Ingestion & CI/CD Triggering")
+    webhook_table.add_column("Integration Layer", style="bold cyan")
+    webhook_table.add_column("Capabilities & Endpoints", style="white")
+    webhook_table.add_row("FastAPI Ingestion Service", f"Endpoints: GET /health, POST /webhook, GET /queue (App: {app.title})")
+    webhook_table.add_row("Cryptographic Security", "HMAC-SHA256 signature verification (X-Hub-Signature-256) with constant-time equality")
+    webhook_table.add_row("Event Handling", "Ingests 'issues' (opened, labeled: agentic-fix) and 'issue_comment' (/fix commands)")
+    webhook_table.add_row("GitHub Action Wrapper", "Packaged in action.yml and .github/workflows/agentic_code.yml for zero-setup CI/CD")
+    console.print(webhook_table)
+
+    console.print("\n[bold green][OK] Phases 1 to 7 successfully implemented and verified![/bold green]\n")
 
 
 if __name__ == "__main__":

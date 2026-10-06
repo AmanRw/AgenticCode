@@ -1,0 +1,60 @@
+name: "AgenticCode Issue Resolver"
+description: "End-to-End Autonomous GitHub Issue Resolution with Google Gemini & Hardened Sandbox"
+author: "Google DeepMind Advanced Agentic Coding"
+
+inputs:
+  github_token:
+    description: "GitHub Personal Access Token or GITHUB_TOKEN"
+    required: true
+  gemini_api_key:
+    description: "Google Gemini API Key"
+    required: true
+  issue_number:
+    description: "The issue number to resolve"
+    required: true
+  max_iterations:
+    description: "Maximum retry repair loops"
+    default: "3"
+    required: false
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+
+    - name: Install Dependencies
+      shell: bash
+      run: uv sync
+
+    - name: Execute AgenticCode Pipeline
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        GEMINI_API_KEY: ${{ inputs.gemini_api_key }}
+        MAX_ITERATIONS: ${{ inputs.max_iterations }}
+      run: |
+        uv run python -c "
+        import os
+        from agentic_code.vcs import GitHubClient
+        from agentic_code.workflow import run_workflow
+
+        issue_num = int('${{ inputs.issue_number }}')
+        repo_name = os.environ.get('GITHUB_REPOSITORY', '')
+
+        gh = GitHubClient()
+        issue_meta = gh.fetch_issue(repo_name, issue_num)
+        print(f'Starting autonomous repair for issue #{issue_num}: {issue_meta.title}')
+
+        final_state = run_workflow(
+            issue=issue_meta.model_dump(),
+            repo_path='.',
+            max_iterations=int(os.environ.get('MAX_ITERATIONS', 3)),
+        )
+        print('Repair completed. PR URL:', final_state.get('pr_url'))
+        "
