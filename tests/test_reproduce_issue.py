@@ -1,5 +1,6 @@
 import pytest
 
+
 # --- Simulate the original buggy function (as it would appear in agentic_code/tools.py) ---
 def calculate_tax_buggy(amount: float, rate: float) -> float:
     """

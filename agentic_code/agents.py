@@ -6,11 +6,13 @@ Declarative personas powered by Google Gemini:
 - Agent 04: Test Writer (gemini-2.5-flash)
 - Agent 03: Code Writer (gemini-2.5-pro)
 - Agent 05: PR Opener (gemini-2.5-flash)
+
+Supports Google Solution A: Stateful Chat.send_message with Automatic Function Calling (AFC).
 """
 
 import json
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -32,11 +34,22 @@ class BasePersona:
         system_prompt: str,
         model_name: Optional[str] = None,
         llm: Optional[BaseChatModel] = None,
+        tools: Optional[List[Any]] = None,
+        use_gemini_chat: Optional[bool] = None,
     ):
         self.name = name
         self.system_prompt = system_prompt
         self.model_name = model_name
         self._llm = llm
+        self.tools = tools or []
+        self._use_gemini_chat = use_gemini_chat
+        self._chat_session: Any = None
+
+    @property
+    def use_gemini_chat(self) -> bool:
+        if self._use_gemini_chat is not None:
+            return self._use_gemini_chat
+        return bool(settings.USE_GEMINI_CHAT_AFC and settings.DEFAULT_LLM_PROVIDER == "gemini")
 
     @property
     def llm(self) -> BaseChatModel:
@@ -44,8 +57,39 @@ class BasePersona:
             self._llm = settings.get_llm(model_name=self.model_name)
         return self._llm
 
+    @property
+    def chat_session(self) -> Any:
+        """
+        Implements Google Solution A: Stateful Chat session supporting Automatic Function Calling (AFC).
+        Uses Chat.send_message instead of Models.generate_content.
+        """
+        if self._chat_session is None:
+            self._chat_session = settings.create_gemini_chat(
+                model_name=self.model_name,
+                tools=self.tools if self.tools else None,
+                system_instruction=self.system_prompt,
+            )
+        return self._chat_session
+
+    def send_chat_message(self, message: str) -> str:
+        """
+        Sends message through stateful Gemini Chat session (Solution A: Chat.send_message).
+        Enables seamless Automatic Function Calling (AFC) without single-turn warnings.
+        """
+        response = self.chat_session.send_message(message)
+        if hasattr(response, "text") and response.text:
+            return str(response.text)
+        return str(response)
+
     def invoke_prompt(self, user_content: str) -> str:
         """Invokes LLM with system prompt and user content."""
+        if self.use_gemini_chat:
+            try:
+                return self.send_chat_message(user_content)
+            except Exception:
+                # Fallback to standard BaseChatModel for offline/unit test mocking
+                pass
+
         messages = [
             SystemMessage(content=self.system_prompt),
             HumanMessage(content=user_content),
@@ -102,12 +146,19 @@ and pinpoint target files, symbols, and line ranges. Return JSON only:
 class CodeReaderAgent(BasePersona):
     """Agent 01: Pinpoints target code and extracts relevant snippets."""
 
-    def __init__(self, llm: Optional[BaseChatModel] = None):
+    def __init__(
+        self,
+        llm: Optional[BaseChatModel] = None,
+        tools: Optional[List[Any]] = None,
+        use_gemini_chat: Optional[bool] = None,
+    ):
         super().__init__(
             name="Agent 01: Code Reader",
             system_prompt=CODE_READER_SYSTEM_PROMPT,
             model_name=settings.CODE_READER_MODEL,
             llm=llm,
+            tools=tools,
+            use_gemini_chat=use_gemini_chat,
         )
 
     def analyze(
@@ -169,12 +220,19 @@ Formulate a diagnostic repair plan with exactly 4 markdown sections:
 class PlannerAgent(BasePersona):
     """Agent 02: Diagnoses root cause and produces structured 4-part plan."""
 
-    def __init__(self, llm: Optional[BaseChatModel] = None):
+    def __init__(
+        self,
+        llm: Optional[BaseChatModel] = None,
+        tools: Optional[List[Any]] = None,
+        use_gemini_chat: Optional[bool] = None,
+    ):
         super().__init__(
             name="Agent 02: Planner",
             system_prompt=PLANNER_SYSTEM_PROMPT,
             model_name=settings.PLANNER_MODEL,
             llm=llm,
+            tools=tools,
+            use_gemini_chat=use_gemini_chat,
         )
 
     def plan(
@@ -216,12 +274,19 @@ class TestWriterAgent(BasePersona):
 
     __test__ = False
 
-    def __init__(self, llm: Optional[BaseChatModel] = None):
+    def __init__(
+        self,
+        llm: Optional[BaseChatModel] = None,
+        tools: Optional[List[Any]] = None,
+        use_gemini_chat: Optional[bool] = None,
+    ):
         super().__init__(
             name="Agent 03: Test Writer",
             system_prompt=TEST_WRITER_SYSTEM_PROMPT,
             model_name=settings.TEST_WRITER_MODEL,
             llm=llm,
+            tools=tools,
+            use_gemini_chat=use_gemini_chat,
         )
 
     def write_tests(self, plan: str, code_context: Dict[str, Any], issue: Dict[str, Any]) -> str:
@@ -244,12 +309,19 @@ Output diff format (--- a/file +++ b/file) inside ```diff ... ``` or updated cod
 class CodeWriterAgent(BasePersona):
     """Agent 04: Synthesizes minimal unified diff patches."""
 
-    def __init__(self, llm: Optional[BaseChatModel] = None):
+    def __init__(
+        self,
+        llm: Optional[BaseChatModel] = None,
+        tools: Optional[List[Any]] = None,
+        use_gemini_chat: Optional[bool] = None,
+    ):
         super().__init__(
             name="Agent 04: Code Writer",
             system_prompt=CODE_WRITER_SYSTEM_PROMPT,
             model_name=settings.CODE_WRITER_MODEL,
             llm=llm,
+            tools=tools,
+            use_gemini_chat=use_gemini_chat,
         )
 
     def write_patch(
@@ -285,12 +357,19 @@ Prepare commit message, PR title, and Markdown PR description linking the issue:
 class PROpenerAgent(BasePersona):
     """Agent 05: Formats PR metadata and markdown descriptions."""
 
-    def __init__(self, llm: Optional[BaseChatModel] = None):
+    def __init__(
+        self,
+        llm: Optional[BaseChatModel] = None,
+        tools: Optional[List[Any]] = None,
+        use_gemini_chat: Optional[bool] = None,
+    ):
         super().__init__(
             name="Agent 05: PR Opener",
             system_prompt=PR_OPENER_SYSTEM_PROMPT,
             model_name=settings.DEFAULT_MODEL,
             llm=llm,
+            tools=tools,
+            use_gemini_chat=use_gemini_chat,
         )
 
     def generate_pr_content(

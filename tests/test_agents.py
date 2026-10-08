@@ -176,3 +176,43 @@ def test_pr_opener_agent():
     assert "fix:" in content["title"].lower()
     assert "branch_name" in content
     assert content["branch_name"] == "agentic-fix/issue-12"
+
+
+def test_gemini_chat_afc_solution_a():
+    from unittest.mock import MagicMock
+
+    from agentic_code.config import settings
+
+    def sample_tool(file_name: str) -> str:
+        """Sample function for AFC testing."""
+        return f"content of {file_name}"
+
+    # Verify create_gemini_chat instantiates a stateful Chat session (Solution A)
+    chat = settings.create_gemini_chat(
+        model_name="gemini-2.5-flash",
+        tools=[sample_tool],
+        system_instruction="You are a helpful coding assistant.",
+    )
+    assert hasattr(chat, "send_message")
+
+    # Verify persona works with use_gemini_chat and Chat.send_message
+    persona = BasePersona(
+        name="AFCPersona",
+        system_prompt="Test system prompt",
+        model_name="gemini-2.5-flash",
+        tools=[sample_tool],
+        use_gemini_chat=True,
+    )
+
+    mock_chat = MagicMock()
+    mock_response = MagicMock()
+    mock_response.text = '{"target_files": ["main.py"]}'
+    mock_chat.send_message.return_value = mock_response
+
+    persona._chat_session = mock_chat
+    res = persona.invoke_prompt("Find the relevant files")
+
+    # Verify Chat.send_message was called instead of Models.generate_content
+    mock_chat.send_message.assert_called_once_with("Find the relevant files")
+    assert '{"target_files": ["main.py"]}' in res
+

@@ -4,6 +4,7 @@ Manages repository lifecycle, clean rollbacks on failed repair attempts,
 and GitHub API communication via PyGithub.
 """
 
+import logging
 import os
 import shutil
 import tempfile
@@ -15,6 +16,8 @@ from github import Auth, Github, GithubException
 
 from agentic_code.config import settings
 from agentic_code.state import IssueMetadata
+
+logger = logging.getLogger("agentic_code.vcs")
 
 
 class GitOperationError(Exception):
@@ -140,6 +143,13 @@ class GitManager:
     def rollback_changes(self) -> None:
         """Rolls back failed repair attempts cleanly (reverts modified files & removes untracked)."""
         try:
+            # Safeguard: Do not destructively wipe the user's active development workspace on master/main
+            try:
+                if self.repo_path.resolve() == Path(".").resolve() and self.repo.active_branch.name in ("master", "main"):
+                    logger.warning("Safeguard: Skipping destructive checkout rollback on active workspace root.")
+                    return
+            except Exception:
+                pass
             self.repo.git.checkout("-f", "HEAD")
             self.repo.git.clean("-fd")
         except GitCommandError as e:

@@ -4,7 +4,7 @@ Supports Google Gemini models, OpenAI, Anthropic, and local mock testing.
 """
 
 import os
-from typing import Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import Field
@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     TEST_WRITER_MODEL: str = Field(default="gemini-2.5-flash", description="Model for Agent 04 Test Writer")
     CODE_WRITER_MODEL: str = Field(default="gemini-2.5-pro", description="Model for Agent 03 Code Writer")
     TEMPERATURE: float = Field(default=0.0, description="LLM temperature")
+    USE_GEMINI_CHAT_AFC: bool = Field(
+        default=True,
+        description="Enable Google Solution A: Use stateful Chat.send_message for Automatic Function Calling (AFC)",
+    )
 
     # Hardened Sandbox Settings
     SANDBOX_IMAGE: str = Field(default="agentic-code-sandbox:latest", description="Docker image tag for sandbox")
@@ -107,7 +111,7 @@ class Settings(BaseSettings):
             from langchain_openai import ChatOpenAI
 
             return ChatOpenAI(
-                model=mod,
+                model_name=mod,
                 openai_api_key=self.OPENAI_API_KEY or "dummy_key_for_testing",
                 temperature=temp,
             )
@@ -121,6 +125,47 @@ class Settings(BaseSettings):
                     "Mock LLM Response: Fix applied.",
                 ]
             )
+
+    def get_gemini_client(self) -> Any:
+        """
+        Returns an authenticated google.genai.Client instance.
+        """
+        from google import genai
+
+        api_key = (
+            self.GEMINI_API_KEY
+            or self.GOOGLE_API_KEY
+            or os.environ.get("GEMINI_API_KEY")
+            or os.environ.get("GOOGLE_API_KEY")
+            or "dummy_key_for_testing"
+        )
+        return genai.Client(api_key=api_key)
+
+    def create_gemini_chat(
+        self,
+        model_name: Optional[str] = None,
+        tools: Optional[List[Any]] = None,
+        system_instruction: Optional[str] = None,
+        temperature: Optional[float] = None,
+    ) -> Any:
+        """
+        Implements Google Solution A: Creates a stateful Chat session with Automatic Function Calling (AFC).
+        Uses Chat.send_message instead of Models.generate_content for robust tool execution.
+        """
+        from google.genai import types
+
+        client = self.get_gemini_client()
+        mod = model_name or self.DEFAULT_MODEL
+        temp = self.TEMPERATURE if temperature is None else temperature
+
+        config_kwargs: Dict[str, Any] = {"temperature": temp}
+        if system_instruction:
+            config_kwargs["system_instruction"] = system_instruction
+        if tools:
+            config_kwargs["tools"] = tools
+
+        config = types.GenerateContentConfig(**config_kwargs)
+        return client.chats.create(model=mod, config=config)
 
 
 # Global settings instance
