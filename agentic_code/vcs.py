@@ -117,13 +117,24 @@ class GitManager:
             with tempfile.NamedTemporaryFile("w", suffix=".patch", delete=False, encoding="utf-8") as f:
                 f.write(text + "\n")
                 tmp_patch = f.name
+            applied = False
             try:
-                self.repo.git.apply("--whitespace=fix", tmp_patch)
-            except GitCommandError:
-                try:
-                    self.repo.git.apply("--3way", "--whitespace=fix", tmp_patch)
-                except GitCommandError as e:
-                    raise GitOperationError(f"Failed to apply unified diff patch: {e}")
+                for apply_args in [
+                    ["--whitespace=fix"],
+                    ["-p0", "--whitespace=fix"],
+                    ["--3way", "--whitespace=fix"],
+                    ["--recount", "--whitespace=fix"],
+                    ["-p0", "--3way", "--whitespace=fix"],
+                ]:
+                    try:
+                        self.repo.git.apply(*apply_args, tmp_patch)
+                        applied = True
+                        break
+                    except GitCommandError:
+                        continue
+
+                if not applied:
+                    raise GitOperationError("Failed to apply unified diff patch with git apply.")
             finally:
                 if os.path.exists(tmp_patch):
                     os.remove(tmp_patch)
@@ -204,7 +215,7 @@ class GitHubClient:
         self.base_url = base_url
         if self.token:
             auth = Auth.Token(self.token)
-            self._gh = Github(auth=auth, base_url=base_url) if base_url else Github(auth=auth)
+            self._gh = Github(auth=auth, base_url=base_url, timeout=5, retry=1) if base_url else Github(auth=auth, timeout=5, retry=1)
         else:
             self._gh = None
 

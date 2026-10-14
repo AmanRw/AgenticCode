@@ -10,6 +10,8 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_GLOBAL_GEMINI_CLIENT: Optional[Any] = None
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -38,9 +40,9 @@ class Settings(BaseSettings):
     )
     DEFAULT_MODEL: str = Field(default="gemini-2.5-flash", description="Default model name")
     CODE_READER_MODEL: str = Field(default="gemini-2.5-flash", description="Model for Agent 01 Code Reader")
-    PLANNER_MODEL: str = Field(default="gemini-2.5-pro", description="Model for Agent 02 Planner")
+    PLANNER_MODEL: str = Field(default="gemini-2.5-flash", description="Model for Agent 02 Planner")
     TEST_WRITER_MODEL: str = Field(default="gemini-2.5-flash", description="Model for Agent 04 Test Writer")
-    CODE_WRITER_MODEL: str = Field(default="gemini-2.5-pro", description="Model for Agent 03 Code Writer")
+    CODE_WRITER_MODEL: str = Field(default="gemini-2.5-flash", description="Model for Agent 03 Code Writer")
     TEMPERATURE: float = Field(default=0.0, description="LLM temperature")
     USE_GEMINI_CHAT_AFC: bool = Field(
         default=True,
@@ -128,8 +130,12 @@ class Settings(BaseSettings):
 
     def get_gemini_client(self) -> Any:
         """
-        Returns an authenticated google.genai.Client instance.
+        Returns an authenticated google.genai.Client instance with persistent lifecycle.
         """
+        global _GLOBAL_GEMINI_CLIENT
+        if _GLOBAL_GEMINI_CLIENT is not None:
+            return _GLOBAL_GEMINI_CLIENT
+
         from google import genai
 
         api_key = (
@@ -139,7 +145,8 @@ class Settings(BaseSettings):
             or os.environ.get("GOOGLE_API_KEY")
             or "dummy_key_for_testing"
         )
-        return genai.Client(api_key=api_key)
+        _GLOBAL_GEMINI_CLIENT = genai.Client(api_key=api_key)
+        return _GLOBAL_GEMINI_CLIENT
 
     def create_gemini_chat(
         self,
@@ -165,7 +172,9 @@ class Settings(BaseSettings):
             config_kwargs["tools"] = tools
 
         config = types.GenerateContentConfig(**config_kwargs)
-        return client.chats.create(model=mod, config=config)
+        chat = client.chats.create(model=mod, config=config)
+        chat._persistent_client = client
+        return chat
 
 
 # Global settings instance

@@ -49,6 +49,8 @@ class BasePersona:
     def use_gemini_chat(self) -> bool:
         if self._use_gemini_chat is not None:
             return self._use_gemini_chat
+        if self._llm is not None:
+            return False
         return bool(settings.USE_GEMINI_CHAT_AFC and settings.DEFAULT_LLM_PROVIDER == "gemini")
 
     @property
@@ -86,9 +88,11 @@ class BasePersona:
         if self.use_gemini_chat:
             try:
                 return self.send_chat_message(user_content)
-            except Exception:
-                # Fallback to standard BaseChatModel for offline/unit test mocking
-                pass
+            except Exception as e:
+                import logging
+                logging.getLogger("agentic_code.agents").warning(
+                    f"Gemini Chat.send_message failed for {self.name}: {e}. Falling back to BaseChatModel."
+                )
 
         messages = [
             SystemMessage(content=self.system_prompt),
@@ -332,8 +336,12 @@ class CodeWriterAgent(BasePersona):
         error_feedback: Optional[str] = None,
         iteration: int = 0,
     ) -> str:
+        snippets = "\n".join(
+            f"File `{f}`:\n```python\n{s}\n```"
+            for f, s in code_context.get("file_snippets", {}).items()
+        )
         feedback = f"\n### Iteration {iteration} Failure:\n{error_feedback}" if error_feedback else ""
-        prompt = f"""### Plan:\n{plan}\n### Tests:\n{tests}\n{feedback}\nProduce unified diff patch."""
+        prompt = f"""### Plan:\n{plan}\n### Target Files & Existing Code:\n{snippets}\n### Tests:\n{tests}\n{feedback}\nProduce minimal unified diff patch targeting only the bug."""
         try:
             resp = self.invoke_prompt(prompt)
             diff = self.extract_code_block(resp, "diff")
@@ -341,7 +349,9 @@ class CodeWriterAgent(BasePersona):
                 return diff
             py = self.extract_code_block(resp, "python")
             return py if py else resp.strip()
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.getLogger("agentic_code.agents").error(f"CodeWriterAgent failed to synthesize patch: {e}")
             target = code_context.get("target_files", ["module.py"])[0]
             return f"--- a/{target}\n+++ b/{target}\n@@ -1,1 +1,2 @@\n+# Fix applied\n"
 

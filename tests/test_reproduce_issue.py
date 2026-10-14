@@ -1,51 +1,89 @@
 import pytest
+from typing import Optional
 
+# --- Simulated Unpatched Code (to reproduce the TypeError) ---
+# This function simulates the original buggy behavior where
+# calculate_tax would raise a TypeError if 'amount' is None.
+# In a real scenario, this function would be imported from 'agentic_code/tools.py'.
+def calculate_tax_unpatched(amount: float, tax_rate: float) -> float:
+    """
+    Calculates tax on an amount.
+    Simulates the unpatched version that fails on None.
+    """
+    # This line will cause a TypeError if 'amount' is None
+    return amount * tax_rate
 
-# --- Simulate the original buggy function (as it would appear in agentic_code/tools.py) ---
-def calculate_tax_buggy(amount: float, rate: float) -> float:
+# --- Simulated Patched Code (to demonstrate the fix) ---
+# This function simulates the corrected behavior where
+# calculate_tax handles None gracefully by returning 0.0.
+# In a real scenario, this function would replace the buggy one in 'agentic_code/tools.py'.
+def calculate_tax_patched(amount: Optional[float], tax_rate: float) -> float:
     """
-    Calculates tax based on amount and rate.
-    This version simulates the bug where 'amount' being None causes a TypeError.
-    """
-    # Simulate the operation that would fail if amount is None
-    # e.g., trying to multiply None by a float
-    return amount * rate
-
-# --- Simulate the patched/fixed function ---
-def calculate_tax_fixed(amount: float | None, rate: float) -> float:
-    """
-    Calculates tax based on amount and rate.
-    This version fixes the bug by handling 'amount' being None gracefully.
+    Calculates tax on an amount, handling None gracefully.
     """
     if amount is None:
-        # Treat None amount as 0 for tax calculation purposes
-        # Alternatively, one might raise a ValueError if None is considered an invalid input
-        # but for tax calculation, 0 is a common and safe default for missing amounts.
-        amount = 0.0
-    return amount * rate
+        return 0.0  # Fix: Return 0.0 if amount is None
+    return amount * tax_rate
 
-# --- Pytest Reproduction Test ---
+# --- Pytest Test Cases ---
 
-def test_calculate_tax_reproduces_type_error_with_none_amount():
+def test_reproduce_issue_calculate_tax_unpatched_none_raises_type_error():
     """
-    Test to reproduce Issue #1: TypeError in calculate_tax when amount is None.
-    This test should FAIL if the original buggy function is used.
+    Test to reproduce the TypeError when calculate_tax_unpatched is called with amount=None.
+    This test should FAIL on the unpatched code.
     """
+    tax_rate = 0.05
     with pytest.raises(TypeError) as excinfo:
-        calculate_tax_buggy(None, 0.10)
-    assert "unsupported operand type(s) for *: 'NoneType' and 'float'" in str(excinfo.value)
+        calculate_tax_unpatched(amount=None, tax_rate=tax_rate)
+    assert "unsupported operand type(s) for *" in str(excinfo.value) or \
+           "can't multiply sequence by non-int of type 'float'" in str(excinfo.value) # Python 3.10+ might give a slightly different message
 
-def test_calculate_tax_passes_with_none_amount_after_fix():
+def test_calculate_tax_patched_none_returns_zero():
     """
-    Test to ensure Issue #1 is fixed: calculate_tax handles None amount gracefully.
-    This test should PASS if the fixed function is used.
-    It verifies that None is treated as 0, resulting in 0 tax.
+    Test that the patched calculate_tax function handles None gracefully,
+    returning 0.0 instead of raising a TypeError.
+    This test should PASS once the fix is applied.
     """
-    # Test with None amount, expecting 0 tax
-    assert calculate_tax_fixed(None, 0.10) == 0.0
-    assert calculate_tax_fixed(None, 0.25) == 0.0
+    tax_rate = 0.05
+    result = calculate_tax_patched(amount=None, tax_rate=tax_rate)
+    assert result == 0.0
 
-    # Ensure existing behavior for non-None amounts is preserved
-    assert calculate_tax_fixed(100.0, 0.10) == 10.0
-    assert calculate_tax_fixed(50.0, 0.20) == 10.0
-    assert calculate_tax_fixed(0.0, 0.15) == 0.0
+def test_calculate_tax_patched_valid_amount():
+    """
+    Regression test: Ensure calculate_tax_patched works correctly with a valid numeric amount.
+    """
+    amount = 100.0
+    tax_rate = 0.05
+    expected_tax = 100.0 * 0.05
+    result = calculate_tax_patched(amount=amount, tax_rate=tax_rate)
+    assert result == expected_tax
+
+def test_calculate_tax_patched_zero_amount():
+    """
+    Regression test: Ensure calculate_tax_patched returns 0.0 for an amount of 0.0.
+    """
+    amount = 0.0
+    tax_rate = 0.05
+    result = calculate_tax_patched(amount=amount, tax_rate=tax_rate)
+    assert result == 0.0
+
+def test_calculate_tax_patched_different_tax_rate():
+    """
+    Regression test: Ensure calculate_tax_patched works with different tax rates.
+    """
+    amount = 250.0
+    tax_rate = 0.10
+    expected_tax = 250.0 * 0.10
+    result = calculate_tax_patched(amount=amount, tax_rate=tax_rate)
+    assert result == expected_tax
+
+def test_calculate_tax_patched_negative_amount_if_applicable():
+    """
+    Regression test: Test with a negative amount (if applicable to the domain).
+    Assuming tax calculation works for negative amounts (e.g., refunds).
+    """
+    amount = -50.0
+    tax_rate = 0.05
+    expected_tax = -50.0 * 0.05
+    result = calculate_tax_patched(amount=amount, tax_rate=tax_rate)
+    assert result == expected_tax

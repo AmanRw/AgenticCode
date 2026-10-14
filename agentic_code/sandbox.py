@@ -54,20 +54,27 @@ class DockerSandbox:
         self._client: Optional[docker.DockerClient] = None
         self._is_docker_available: Optional[bool] = None
 
+    _cached_docker_available: Optional[bool] = None
+
     @property
     def is_docker_available(self) -> bool:
         """Checks whether the Docker daemon is accessible and responding."""
         if self._is_docker_available is not None:
             return self._is_docker_available
+        if DockerSandbox._cached_docker_available is not None:
+            self._is_docker_available = DockerSandbox._cached_docker_available
+            return self._is_docker_available
 
         try:
-            client = docker.from_env()
+            client = docker.from_env(timeout=2)
             client.ping()
             self._client = client
             self._is_docker_available = True
+            DockerSandbox._cached_docker_available = True
         except Exception:
             self._client = None
             self._is_docker_available = False
+            DockerSandbox._cached_docker_available = False
 
         return self._is_docker_available
 

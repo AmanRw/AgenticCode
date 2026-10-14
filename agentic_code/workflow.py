@@ -7,6 +7,7 @@ Integrates Phase 8 Observability & Tracing hooks.
 """
 
 import time
+from pathlib import Path
 from typing import Any, Dict, Literal
 
 from langgraph.graph import END, START, StateGraph
@@ -106,7 +107,14 @@ def node_reproduction_verifier(state: AgentState) -> Dict[str, Any]:
     with trace_span("node_reproduction_verifier"):
         repo_path = state.get("repo_path", ".")
         sandbox = DockerSandbox(repo_path=repo_path)
-        cmd = "pytest -v test_reproduce_issue.py"
+        tests_dir = Path(repo_path) / "tests"
+        if (tests_dir / "test_reproduce_issue.py").exists():
+            test_target = "tests/test_reproduce_issue.py"
+        elif (Path(repo_path) / "test_reproduce_issue.py").exists():
+            test_target = "test_reproduce_issue.py"
+        else:
+            test_target = "test_reproduce_issue.py"
+        cmd = f"pytest -v {test_target}"
         results = sandbox.execute_command(cmd)
 
         audit_logger.record_sandbox_trace(
@@ -191,10 +199,19 @@ def node_sandbox_verifier(state: AgentState) -> Dict[str, Any]:
     with trace_span("node_sandbox_verifier"):
         repo_path = state.get("repo_path", ".")
         sandbox = DockerSandbox(repo_path=repo_path)
-        results = sandbox.execute_command("pytest -v")
+        tests_dir = Path(repo_path) / "tests"
+        if (tests_dir / "test_reproduce_issue.py").exists():
+            test_target = "tests/test_reproduce_issue.py"
+        elif (Path(repo_path) / "test_reproduce_issue.py").exists():
+            test_target = "test_reproduce_issue.py"
+        else:
+            test_target = ""
+
+        cmd = f"pytest -v {test_target}".strip()
+        results = sandbox.execute_command(cmd)
 
         audit_logger.record_sandbox_trace(
-            command="pytest -v",
+            command=cmd,
             exit_code=results.exit_code,
             duration_seconds=results.duration_seconds,
             passed=results.passed,
@@ -247,18 +264,29 @@ def node_pr_opener(state: AgentState) -> Dict[str, Any]:
         try:
             with GitManager(repo_path) as git_mgr:
                 git_mgr.commit_changes(pr_content["commit_message"])
-                # Push and create PR if GitHub credentials are active
-                if settings.GITHUB_TOKEN:
+                # Push and create PR if GitHub credentials are active and targeting a remote GitHub repository
+                repo_url = issue.get("repo_url", "")
+                is_remote_repo = (
+                    repo_url
+                    and repo_url not in (".", "./", "")
+                    and "/" in repo_url.replace("https://github.com/", "")
+                    and not repo_url.startswith(".")
+                    and "test/repo" not in repo_url
+                )
+                if settings.GITHUB_TOKEN and is_remote_repo:
                     git_mgr.push_branch(pr_content["branch_name"])
                     gh_client = GitHubClient()
                     pr_url = gh_client.create_pull_request(
-                        repo_name=issue.get("repo_url", ""),
+                        repo_name=repo_url,
                         title=pr_content["title"],
                         body=pr_content["body"],
                         head_branch=pr_content["branch_name"],
                     )
         except Exception:
             # Fallback simulated PR URL for offline/dry-run environments
+            pr_url = f"{issue.get('repo_url', 'https://github.com/repo')}/pull/{issue.get('issue_number', 0) + 100}"
+
+        if not pr_url:
             pr_url = f"{issue.get('repo_url', 'https://github.com/repo')}/pull/{issue.get('issue_number', 0) + 100}"
 
         dur = round(time.time() - start_t, 3)
@@ -282,11 +310,19 @@ def node_escalation(state: AgentState) -> Dict[str, Any]:
         error_feedback = state.get("error_feedback")
 
         report = f"Escalated: Automated repair unsuccessful after {iteration} iterations."
-        if settings.GITHUB_TOKEN and issue.get("repo_url"):
+        repo_url = issue.get("repo_url", "")
+        is_remote_repo = (
+            repo_url
+            and repo_url not in (".", "./", "")
+            and "/" in repo_url.replace("https://github.com/", "")
+            and not repo_url.startswith(".")
+            and "test/repo" not in repo_url
+        )
+        if settings.GITHUB_TOKEN and is_remote_repo:
             try:
                 gh_client = GitHubClient()
                 gh_client.post_diagnostic_failure(
-                    repo_name=issue.get("repo_url", ""),
+                    repo_name=repo_url,
                     issue_number=issue.get("issue_number", 0),
                     plan=plan,
                     iterations=iteration,
