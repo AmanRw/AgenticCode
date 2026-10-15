@@ -17,13 +17,19 @@ on:
         default: "3"
         type: string
 
+# Ensure only one instance runs per issue at a time (prevents duplicate workflow runs)
+concurrency:
+  group: agentic-code-${{ github.event.issue.number || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   resolve-issue:
-    # Trigger on newly opened issues, issues labeled 'agentic-fix', /fix comments, or manual dispatch
+    # Trigger on newly opened issues, issues specifically labeled 'agentic-fix', /fix comments, or manual dispatch
     if: >
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'issues' && (github.event.action == 'opened' || contains(github.event.issue.labels.*.name, 'agentic-fix'))) ||
-      (github.event_name == 'issue_comment' && startsWith(github.event.comment.body, '/fix'))
+      (github.event_name == 'issues' && github.event.action == 'opened') ||
+      (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'agentic-fix') ||
+      (github.event_name == 'issue_comment' && !github.event.issue.pull_request && startsWith(github.event.comment.body, '/fix'))
     runs-on: ubuntu-latest
     permissions:
       contents: write
