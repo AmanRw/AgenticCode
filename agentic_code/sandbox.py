@@ -9,6 +9,7 @@ Provides secure code execution using Docker with strict isolation policies:
 - Ephemeral workspace mounting and local fallback execution
 """
 
+import logging
 import os
 import subprocess
 import time
@@ -19,6 +20,8 @@ import docker
 
 from agentic_code.config import settings
 from agentic_code.state import TestResults
+
+logger = logging.getLogger("agentic_code.sandbox")
 
 
 class SandboxExecutionError(Exception):
@@ -172,6 +175,18 @@ class DockerSandbox:
                 error_summary=None if passed else (stderr or stdout)[-1000:],
             )
         except Exception as exc:
+            if container:
+                try:
+                    container.remove(force=True)
+                except Exception:
+                    pass
+                container = None
+
+            if settings.ALLOW_LOCAL_FALLBACK_SANDBOX:
+                logger.warning(f"Docker execution failed ({exc}). Falling back to local subprocess sandbox.")
+                print(f"⚠️ Docker error ({exc}). Falling back to local subprocess sandbox.")
+                return self._execute_local_fallback(command, env=environment, timeout=deadline)
+
             duration = round(time.time() - start_time, 2)
             return TestResults(
                 exit_code=-1,

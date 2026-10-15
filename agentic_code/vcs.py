@@ -107,24 +107,122 @@ class GitManager:
         except GitCommandError as e:
             raise GitOperationError(f"Failed to checkout branch '{branch_name}': {e}")
 
+    def _apply_unified_diff_fallback(self, diff_text: str) -> bool:
+        """Applies unified diff hunks directly to repository files in Python when git apply fails."""
+        import re
+
+        if not self.repo_path:
+            return False
+
+        # Split multiple file patches
+        file_diffs = re.split(r"(?=^--- (?:a/|[^\n\r]+))", diff_text, flags=re.MULTILINE)
+        applied_any = False
+
+        for file_diff in file_diffs:
+            lines = file_diff.strip().splitlines()
+            if not lines:
+                continue
+
+            target_rel = None
+            for line in lines:
+                if line.startswith("+++ b/"):
+                    target_rel = line[6:].strip()
+                    break
+                elif line.startswith("+++ "):
+                    target_rel = line[4:].strip().lstrip("b/")
+                    break
+
+            if not target_rel:
+                continue
+
+            target_file = (self.repo_path / target_rel).resolve()
+            if not target_file.exists():
+                # Try finding by filename across repo
+                matches = list(self.repo_path.glob(f"**/{Path(target_rel).name}"))
+                if matches:
+                    target_file = matches[0]
+                else:
+                    continue
+
+            try:
+                original_content = target_file.read_text(encoding="utf-8")
+            except Exception:
+                continue
+
+            file_lines = original_content.splitlines()
+            hunk_blocks = re.split(r"(?=^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@)", file_diff, flags=re.MULTILINE)
+            content_modified = False
+
+            for hunk in hunk_blocks:
+                hunk_lines = hunk.strip().splitlines()
+                if not hunk_lines or not hunk_lines[0].startswith("@@"):
+                    continue
+
+                old_lines = []
+                new_lines = []
+                for h_line in hunk_lines[1:]:
+                    if h_line.startswith("+"):
+                        new_lines.append(h_line[1:])
+                    elif h_line.startswith("-"):
+                        old_lines.append(h_line[1:])
+                    elif h_line.startswith(" ") or not h_line:
+                        ctx = h_line[1:] if h_line.startswith(" ") else h_line
+                        old_lines.append(ctx)
+                        new_lines.append(ctx)
+
+                old_block = "\n".join(old_lines)
+                new_block = "\n".join(new_lines)
+
+                if old_block and old_block in original_content:
+                    original_content = original_content.replace(old_block, new_block, 1)
+                    content_modified = True
+                else:
+                    norm_old = "\n".join(line_str.strip() for line_str in old_lines)
+                    for idx in range(len(file_lines) - len(old_lines) + 1):
+                        window = "\n".join(file_lines[idx : idx + len(old_lines)][i].strip() for i in range(len(old_lines)))
+                        if window == norm_old:
+                            file_lines[idx : idx + len(old_lines)] = new_lines
+                            original_content = "\n".join(file_lines)
+                            content_modified = True
+                            break
+
+            if content_modified:
+                target_file.write_text(original_content.rstrip() + "\n", encoding="utf-8")
+                applied_any = True
+
+        return applied_any
+
     def apply_patch(self, patch_content: str) -> None:
-        """Applies a unified diff patch with whitespace fix and 3-way merge fallback."""
+        """Applies a unified diff patch with whitespace fix, 3-way merge fallback, and Python hunk fallback."""
         if not patch_content or not patch_content.strip():
             return
         text = patch_content.strip()
 
-        if ("--- " in text and "+++ " in text) or "@@" in text:
+        # Clean markdown code block fences if present
+        clean_lines = [line_str for line_str in text.splitlines() if not line_str.strip().startswith("```")]
+        start_idx = 0
+        for i, line_str in enumerate(clean_lines):
+            if line_str.startswith("--- ") or line_str.startswith("diff --git"):
+                start_idx = i
+                break
+        clean_text = "\n".join(clean_lines[start_idx:]).strip() + "\n"
+
+        if ("--- " in clean_text and "+++ " in clean_text) or "@@" in clean_text:
             with tempfile.NamedTemporaryFile("w", suffix=".patch", delete=False, encoding="utf-8") as f:
-                f.write(text + "\n")
+                f.write(clean_text)
                 tmp_patch = f.name
             applied = False
             try:
                 for apply_args in [
                     ["--whitespace=fix"],
+                    ["--ignore-whitespace", "--whitespace=fix"],
+                    ["-C1", "--ignore-whitespace"],
                     ["-p0", "--whitespace=fix"],
+                    ["-p1", "--whitespace=fix"],
                     ["--3way", "--whitespace=fix"],
                     ["--recount", "--whitespace=fix"],
                     ["-p0", "--3way", "--whitespace=fix"],
+                    ["-p1", "--3way", "--whitespace=fix"],
                 ]:
                     try:
                         self.repo.git.apply(*apply_args, tmp_patch)
@@ -132,6 +230,10 @@ class GitManager:
                         break
                     except GitCommandError:
                         continue
+
+                if not applied:
+                    logger.info("git apply failed with CLI options. Attempting Python hunk fallback.")
+                    applied = self._apply_unified_diff_fallback(clean_text)
 
                 if not applied:
                     raise GitOperationError("Failed to apply unified diff patch with git apply.")

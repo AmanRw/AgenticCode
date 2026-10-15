@@ -33,6 +33,16 @@ runs:
       run: |
         uv sync --project "${{ github.action_path }}"
 
+    - name: Build Sandbox Image
+      shell: bash
+      run: |
+        if command -v docker &> /dev/null && docker info &> /dev/null; then
+          echo "Building agentic-code-sandbox:latest Docker image..."
+          docker build -t agentic-code-sandbox:latest "${{ github.action_path }}"
+        else
+          echo "Docker is not available; AgenticCode will use local subprocess sandbox."
+        fi
+
     - name: Execute AgenticCode Pipeline
       shell: bash
       env:
