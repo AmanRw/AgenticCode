@@ -2,9 +2,9 @@
 Specialized Agent Personas for AgenticCode (Phase 4).
 Declarative personas powered by Google Gemini:
 - Agent 01: Code Reader (gemini-2.5-flash)
-- Agent 02: Planner (gemini-2.5-pro)
+- Agent 02: Planner (gemini-2.5-flash)
 - Agent 04: Test Writer (gemini-2.5-flash)
-- Agent 03: Code Writer (gemini-2.5-pro)
+- Agent 03: Code Writer (gemini-2.5-flash)
 - Agent 05: PR Opener (gemini-2.5-flash)
 
 Supports Google Solution A: Stateful Chat.send_message with Automatic Function Calling (AFC).
