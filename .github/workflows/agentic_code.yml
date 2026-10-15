@@ -19,10 +19,10 @@ on:
 
 jobs:
   resolve-issue:
-    # Trigger if manually dispatched, labeled 'agentic-fix', or issue comment starts with /fix
+    # Trigger on newly opened issues, issues labeled 'agentic-fix', /fix comments, or manual dispatch
     if: >
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'agentic-fix')) ||
+      (github.event_name == 'issues' && (github.event.action == 'opened' || contains(github.event.issue.labels.*.name, 'agentic-fix'))) ||
       (github.event_name == 'issue_comment' && startsWith(github.event.comment.body, '/fix'))
     runs-on: ubuntu-latest
     permissions:

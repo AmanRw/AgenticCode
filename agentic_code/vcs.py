@@ -171,10 +171,16 @@ class GitManager:
         message: str,
         author_name: str = "AgenticCode Bot",
         author_email: str = "bot@agenticcode.ai",
-    ) -> str:
+    ) -> Optional[str]:
         """Stages all changes and creates a commit with designated bot authorship."""
         try:
             self.repo.git.add("-A")
+            # If nothing to commit, return None rather than raising an error
+            status_output = self.repo.git.status("--porcelain")
+            if not status_output.strip():
+                logger.info("Nothing to commit, working tree clean.")
+                return None
+
             env = {
                 "GIT_AUTHOR_NAME": author_name,
                 "GIT_AUTHOR_EMAIL": author_email,
@@ -184,6 +190,8 @@ class GitManager:
             self.repo.git.commit("-m", message, env=env)
             return self.repo.head.commit.hexsha
         except GitCommandError as e:
+            if "nothing to commit" in str(e).lower():
+                return None
             raise GitOperationError(f"Failed to commit changes: {e}")
 
     def get_diff(self, base_ref: str = "HEAD~1") -> str:
@@ -232,7 +240,11 @@ class GitHubClient:
             clean = clean.split("github.com/")[-1]
         elif "github.com:" in clean:
             clean = clean.split("github.com:")[-1]
-        return clean[:-4] if clean.endswith(".git") else clean
+        clean = clean[:-4] if clean.endswith(".git") else clean
+        parts = [p for p in clean.split("/") if p]
+        if len(parts) >= 2:
+            return f"{parts[0]}/{parts[1]}"
+        return clean
 
     def fetch_issue(self, repo_name: str, issue_number: int) -> IssueMetadata:
         """Fetches issue details into typed IssueMetadata."""
@@ -240,11 +252,12 @@ class GitHubClient:
         try:
             repo = self.gh.get_repo(name)
             issue = repo.get_issue(number=issue_number)
+            repo_html = repo.html_url if isinstance(getattr(repo, "html_url", None), str) else f"https://github.com/{name}"
             return IssueMetadata(
                 title=issue.title or "",
                 body=issue.body or "",
                 issue_number=issue.number,
-                repo_url=issue.html_url or f"https://github.com/{name}",
+                repo_url=repo_html,
                 author=issue.user.login if issue.user else None,
                 labels=[lbl.name for lbl in issue.labels],
                 comments=[c.body for c in issue.get_comments()],

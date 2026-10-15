@@ -1,5 +1,7 @@
-import pytest
 from typing import Optional
+
+import pytest
+
 
 # --- Simulated Unpatched Code (to reproduce the TypeError) ---
 # This function simulates the original buggy behavior where

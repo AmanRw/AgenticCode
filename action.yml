@@ -59,5 +59,9 @@ runs:
             repo_path=target_repo,
             max_iterations=int(os.environ.get('MAX_ITERATIONS', 3)),
         )
-        print('Repair completed. PR URL:', final_state.get('pr_url'))
+        pr_url = final_state.get('pr_url')
+        if pr_url:
+            print(f'✅ Autonomous repair completed successfully. PR URL: {pr_url}')
+        else:
+            print(f'ℹ️ Workflow finished for issue #{issue_num}. No PR was generated (issue already resolved, not reproducible, or escalated).')
         "

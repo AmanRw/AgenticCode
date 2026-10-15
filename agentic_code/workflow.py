@@ -6,6 +6,7 @@ Sandbox Verifier -> [Conditional Cyclic Retry Loop] -> PR Opener / Escalation.
 Integrates Phase 8 Observability & Tracing hooks.
 """
 
+import logging
 import time
 from pathlib import Path
 from typing import Any, Dict, Literal
@@ -24,6 +25,8 @@ from agentic_code.observability import audit_logger, trace_span
 from agentic_code.sandbox import DockerSandbox
 from agentic_code.state import AgentState
 from agentic_code.vcs import GitHubClient, GitManager
+
+logger = logging.getLogger("agentic_code.workflow")
 
 # ---------------------------------------------------------------------------
 # Node Definitions
@@ -127,6 +130,10 @@ def node_reproduction_verifier(state: AgentState) -> Dict[str, Any]:
             action="REPRODUCTION_TEST",
             details={"passed": results.passed, "exit_code": results.exit_code},
         )
+
+        if results.passed:
+            logger.info("ℹ️ Reproduction test passed on unpatched code (issue may already be fixed or non-reproducible).")
+            print("ℹ️ Reproduction test passed on unpatched code (issue may already be fixed or non-reproducible).")
 
         return {
             "test_results": results.model_dump(),
@@ -250,6 +257,10 @@ def node_pr_opener(state: AgentState) -> Dict[str, Any]:
         test_results = state.get("test_results", {})
         iteration = state.get("iteration", 0)
         repo_path = state.get("repo_path", ".")
+        error_feedback = state.get("error_feedback") or ""
+
+        # Check if reproduction test passed on unpatched code
+        already_fixed = "Warning: Test passed on unpatched code." in error_feedback
 
         agent = PROpenerAgent()
         pr_content = agent.generate_pr_content(
@@ -261,33 +272,104 @@ def node_pr_opener(state: AgentState) -> Dict[str, Any]:
         )
 
         pr_url = None
+        branch_name = pr_content.get("branch_name", f"agentic-fix/issue-{issue.get('issue_number', 0)}")
+        repo_url = issue.get("repo_url", "")
+        is_remote_repo = (
+            repo_url
+            and repo_url not in (".", "./", "")
+            and "/" in repo_url.replace("https://github.com/", "")
+            and not repo_url.startswith(".")
+            and "test/repo" not in repo_url
+        )
+
         try:
             with GitManager(repo_path) as git_mgr:
-                git_mgr.commit_changes(pr_content["commit_message"])
-                # Push and create PR if GitHub credentials are active and targeting a remote GitHub repository
-                repo_url = issue.get("repo_url", "")
-                is_remote_repo = (
-                    repo_url
-                    and repo_url not in (".", "./", "")
-                    and "/" in repo_url.replace("https://github.com/", "")
-                    and not repo_url.startswith(".")
-                    and "test/repo" not in repo_url
-                )
+                # Check for actual modifications or untracked test files in repo
+                diff_text = git_mgr.get_diff("HEAD")
+                untracked = git_mgr.repo.untracked_files
+                has_changes = bool(diff_text.strip() or untracked)
+
+                # Scenario: Issue is already fixed or no code modifications required
+                if not has_changes or (already_fixed and not patch.strip()):
+                    logger.info(f"ℹ️ Issue #{issue.get('issue_number')} appears to be ALREADY RESOLVED. No changes to commit.")
+                    print(f"ℹ️ Issue #{issue.get('issue_number')} appears to be ALREADY RESOLVED or tests pass on unpatched code. No changes to commit.")
+
+                    if settings.GITHUB_TOKEN and is_remote_repo:
+                        try:
+                            gh_client = GitHubClient()
+                            gh_client.post_issue_comment(
+                                repo_name=repo_url,
+                                issue_number=issue.get("issue_number", 0),
+                                comment_body=(
+                                    f"### ℹ️ AgenticCode Notice: Issue Already Resolved / Not Reproducible\n\n"
+                                    f"AgenticCode evaluated issue #{issue.get('issue_number')} (**{issue.get('title', '')}**) and ran tests against the repository.\n\n"
+                                    f"- **Status**: Reproduction tests passed against the unpatched codebase.\n"
+                                    f"- **Conclusion**: The reported issue is already resolved in the current version or not reproducible.\n"
+                                    f"- **Action**: No code changes were needed and no Pull Request was generated."
+                                ),
+                            )
+                            print(f"Posted diagnostic comment on issue #{issue.get('issue_number')} regarding resolution.")
+                        except Exception as comm_err:
+                            logger.warning(f"Could not post already-fixed comment to GitHub: {comm_err}")
+
+                    dur = round(time.time() - start_t, 3)
+                    audit_logger.record_agent_decision(
+                        node="node_pr_opener",
+                        persona="PROpenerAgent",
+                        inputs={"issue_title": issue.get("title", ""), "already_resolved": True},
+                        outputs={"pr_url": None},
+                        duration_seconds=dur,
+                    )
+                    return {"pr_url": None}
+
+                # 1. Create and checkout the isolated feature branch
+                git_mgr.create_and_checkout_branch(branch_name)
+
+                # 2. Commit verified changes
+                commit_sha = git_mgr.commit_changes(pr_content["commit_message"])
+                if not commit_sha:
+                    logger.info("No modifications staged for commit.")
+                    print("ℹ️ No modifications staged for commit.")
+                    return {"pr_url": None}
+
+                # 3. Push and create PR if GitHub credentials are active and targeting a remote GitHub repository
                 if settings.GITHUB_TOKEN and is_remote_repo:
-                    git_mgr.push_branch(pr_content["branch_name"])
+                    # Authenticate remote origin URL for push in CI runners
+                    token = settings.GITHUB_TOKEN
+                    try:
+                        origin = git_mgr.repo.remotes.origin
+                        remote_url = next(origin.urls)
+                        if "github.com" in remote_url and token not in remote_url:
+                            clean_url = remote_url.replace("https://", "").replace("http://", "")
+                            if "@" in clean_url:
+                                clean_url = clean_url.split("@")[-1]
+                            auth_url = f"https://x-access-token:{token}@{clean_url}"
+                            origin.set_url(auth_url)
+                    except Exception as e:
+                        logger.debug(f"Remote push URL setup note: {e}")
+
+                    print(f"Pushing branch '{branch_name}' to remote origin...")
+                    git_mgr.push_branch(branch_name, force=True)
+
                     gh_client = GitHubClient()
+                    print(f"Creating GitHub Pull Request for branch '{branch_name}'...")
                     pr_url = gh_client.create_pull_request(
                         repo_name=repo_url,
                         title=pr_content["title"],
                         body=pr_content["body"],
-                        head_branch=pr_content["branch_name"],
+                        head_branch=branch_name,
                     )
-        except Exception:
-            # Fallback simulated PR URL for offline/dry-run environments
-            pr_url = f"{issue.get('repo_url', 'https://github.com/repo')}/pull/{issue.get('issue_number', 0) + 100}"
-
-        if not pr_url:
-            pr_url = f"{issue.get('repo_url', 'https://github.com/repo')}/pull/{issue.get('issue_number', 0) + 100}"
+                    print(f"✅ Pull Request created successfully: {pr_url}")
+                elif not is_remote_repo:
+                    # Fallback simulated PR URL for offline/dry-run environments
+                    pr_url = f"{issue.get('repo_url', 'https://github.com/repo')}/pull/{issue.get('issue_number', 0) + 100}"
+        except Exception as e:
+            logger.error(f"Failed to create PR or push branch: {e}", exc_info=True)
+            print(f"❌ Failed to create PR or push branch: {e}")
+            if not is_remote_repo or not settings.GITHUB_TOKEN:
+                pr_url = f"{issue.get('repo_url', 'https://github.com/repo')}/pull/{issue.get('issue_number', 0) + 100}"
+            else:
+                pr_url = None
 
         dur = round(time.time() - start_t, 3)
         audit_logger.record_agent_decision(
