@@ -192,7 +192,7 @@ class GitManager:
 
         return applied_any
 
-    def apply_patch(self, patch_content: str) -> None:
+    def apply_patch(self, patch_content: str, target_file: Optional[str] = None) -> None:
         """Applies a unified diff patch with whitespace fix, 3-way merge fallback, and Python hunk fallback."""
         if not patch_content or not patch_content.strip():
             return
@@ -240,6 +240,18 @@ class GitManager:
             finally:
                 if os.path.exists(tmp_patch):
                     os.remove(tmp_patch)
+        elif target_file and self.repo_path:
+            # If the patch is full replacement Python code
+            target_path = (self.repo_path / target_file).resolve()
+            if not target_path.exists():
+                matches = list(self.repo_path.glob(f"**/{Path(target_file).name}"))
+                if matches:
+                    target_path = matches[0]
+            if target_path.exists() and ("def " in clean_text or "class " in clean_text or "import " in clean_text):
+                logger.info(f"Patch is full code; applying directly to target file: {target_path}")
+                target_path.write_text(clean_text.rstrip() + "\n", encoding="utf-8")
+                return
+            raise GitOperationError("Patch content is not in unified diff format.")
         else:
             raise GitOperationError("Patch content is not in unified diff format.")
 

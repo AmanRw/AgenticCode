@@ -178,10 +178,13 @@ def node_code_writer(state: AgentState) -> Dict[str, Any]:
         )
 
         # Apply patch to repository working tree
+        target_files = code_context.get("target_files", [])
+        primary_target = target_files[0] if target_files else None
         try:
             with GitManager(repo_path) as git_mgr:
-                git_mgr.apply_patch(patch)
+                git_mgr.apply_patch(patch, target_file=primary_target)
         except Exception as e:
+            logger.warning(f"Failed to apply patch in iteration {iteration}: {e}")
             error_feedback = f"Failed to apply patch: {e}"
 
         dur = round(time.time() - start_t, 3)
