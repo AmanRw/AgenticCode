@@ -38,11 +38,11 @@ class Settings(BaseSettings):
     DEFAULT_LLM_PROVIDER: Literal["gemini", "openai", "anthropic", "mock"] = Field(
         default="gemini", description="Default provider: gemini | openai | anthropic | mock"
     )
-    DEFAULT_MODEL: str = Field(default="gemini-2.5-flash", description="Default model name")
-    CODE_READER_MODEL: str = Field(default="gemini-2.5-flash", description="Model for Agent 01 Code Reader")
-    PLANNER_MODEL: str = Field(default="gemini-2.5-flash", description="Model for Agent 02 Planner")
-    TEST_WRITER_MODEL: str = Field(default="gemini-2.5-flash", description="Model for Agent 04 Test Writer")
-    CODE_WRITER_MODEL: str = Field(default="gemini-2.5-flash", description="Model for Agent 03 Code Writer")
+    DEFAULT_MODEL: str = Field(default="gemini-3.5-flash", description="Default model name")
+    CODE_READER_MODEL: str = Field(default="gemini-3.5-flash", description="Model for Agent 01 Code Reader")
+    PLANNER_MODEL: str = Field(default="gemini-3.5-flash", description="Model for Agent 02 Planner")
+    TEST_WRITER_MODEL: str = Field(default="gemini-3.5-flash", description="Model for Agent 04 Test Writer")
+    CODE_WRITER_MODEL: str = Field(default="gemini-3.5-flash", description="Model for Agent 03 Code Writer")
     TEMPERATURE: float = Field(default=0.0, description="LLM temperature")
     USE_GEMINI_CHAT_AFC: bool = Field(
         default=True,
@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     ) -> BaseChatModel:
         """
         Instantiate and return a ChatModel based on provider and model configurations.
-        Defaults to Google Gemini (e.g. gemini-2.5-flash, gemini-2.5-pro).
+        Defaults to Google Gemini (e.g. gemini-3.5-flash, gemini-3.5-pro).
         """
         prov = provider or self.DEFAULT_LLM_PROVIDER
         mod = model_name or self.DEFAULT_MODEL
