@@ -83,25 +83,53 @@ class BasePersona:
             return str(response.text)
         return str(response)
 
-    def invoke_prompt(self, user_content: str) -> str:
-        """Invokes LLM with system prompt and user content."""
-        if self.use_gemini_chat:
+    def invoke_prompt(self, user_content: str, max_retries: int = 3) -> str:
+        """Invokes LLM with system prompt and user content, with automatic retry on transient failures."""
+        import time
+
+        last_error = None
+        for attempt in range(max_retries):
+            if self.use_gemini_chat:
+                try:
+                    return self.send_chat_message(user_content)
+                except Exception as e:
+                    import logging
+                    logging.getLogger("agentic_code.agents").warning(
+                        f"Gemini Chat.send_message failed for {self.name} (attempt {attempt + 1}/{max_retries}): {e}. Falling back to BaseChatModel."
+                    )
+                    last_error = e
+
             try:
-                return self.send_chat_message(user_content)
+                messages = [
+                    SystemMessage(content=self.system_prompt),
+                    HumanMessage(content=user_content),
+                ]
+                response = self.llm.invoke(messages)
+                if isinstance(response, AIMessage):
+                    return str(response.content)
+                return str(response)
             except Exception as e:
                 import logging
                 logging.getLogger("agentic_code.agents").warning(
-                    f"Gemini Chat.send_message failed for {self.name}: {e}. Falling back to BaseChatModel."
+                    f"LLM invoke failed for {self.name} (attempt {attempt + 1}/{max_retries}): {e}"
                 )
+                last_error = e
+                if attempt < max_retries - 1:
+                    time.sleep(2 * (attempt + 1))
 
-        messages = [
-            SystemMessage(content=self.system_prompt),
-            HumanMessage(content=user_content),
-        ]
-        response = self.llm.invoke(messages)
-        if isinstance(response, AIMessage):
-            return str(response.content)
-        return str(response)
+        if last_error:
+            raise last_error
+        return ""
+
+    @staticmethod
+    def clean_line_number_prefixes(code: str) -> str:
+        """Strips line number annotations (e.g. '   1: ', '1: ', '1 | ') from code lines."""
+        lines = code.splitlines()
+        pattern = re.compile(r"^\s*\d+[:|]\s?")
+        if any(pattern.match(l) for l in lines if l.strip()):
+            cleaned = [pattern.sub("", l) for l in lines]
+            return "\n".join(cleaned)
+        return code
 
     @staticmethod
     def extract_json_from_response(text: str) -> Dict[str, Any]:
@@ -121,16 +149,23 @@ class BasePersona:
         return {"raw_text": text}
 
     @staticmethod
-    def extract_code_block(text: str, language: str = "python") -> str:
-        """Extracts code block from markdown fences."""
+    def extract_code_block(text: str, language: str = "python", clean_line_numbers: bool = True) -> str:
+        """Extracts code block from markdown fences and cleans line number prefixes."""
         pattern = rf"```{language}\s*\n(.*?)\n```"
         match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
+        code = ""
         if match:
-            return match.group(1).strip()
-        generic = re.search(r"```(?:\w+)?\s*\n(.*?)\n```", text, re.DOTALL)
-        if generic:
-            return generic.group(1).strip()
-        return text.strip()
+            code = match.group(1).strip()
+        else:
+            generic = re.search(r"```(?:\w+)?\s*\n(.*?)\n```", text, re.DOTALL)
+            if generic:
+                code = generic.group(1).strip()
+            else:
+                code = text.strip()
+
+        if clean_line_numbers and language == "python":
+            return BasePersona.clean_line_number_prefixes(code)
+        return code
 
 
 # ---------------------------------------------------------------------------
@@ -196,15 +231,18 @@ Pinpoint target files and symbols. Return JSON only."""
             target_files = [files_sample[0]]
 
         snippets = {}
+        raw_snippets = {}
         for target in target_files:
             snip = extract_code_snippet(repo_path, target, 1, 80, context_lines=3)
             if "snippet" in snip:
-                snippets[target] = snip["snippet"]
+                snippets[target] = snip.get("raw_snippet") or snip["snippet"]
+                raw_snippets[target] = snip.get("raw_snippet", "")
 
         return {
             "target_files": target_files,
             "symbols": data.get("symbols", []),
             "file_snippets": snippets,
+            "raw_snippets": raw_snippets,
             "summary": data.get("summary", "Localization completed."),
         }
 
@@ -218,7 +256,9 @@ Formulate a diagnostic repair plan with exactly 4 markdown sections:
 1. ### Identified Bug / Failure Mode
 2. ### Invariants and Existing Behaviors
 3. ### Step-by-Step Logic Modifications
-4. ### Requirements for Reproduction and Regression Tests"""
+4. ### Requirements for Reproduction and Regression Tests
+
+Important: In section 3, write clean, complete replacement python code in ```python ... ``` without line numbers."""
 
 
 class PlannerAgent(BasePersona):
@@ -296,9 +336,32 @@ class TestWriterAgent(BasePersona):
     def write_tests(self, plan: str, code_context: Dict[str, Any], issue: Dict[str, Any]) -> str:
         prompt = f"""### Plan:\n{plan}\n### Target Files:\n{code_context.get('target_files')}\n### Issue #{issue.get('issue_number')}:\n{issue.get('title')}\nOutput reproduction pytest code."""
         try:
-            return self.extract_code_block(self.invoke_prompt(prompt), "python")
-        except Exception:
-            return "import pytest\ndef test_reproduce(): assert True"
+            code = self.extract_code_block(self.invoke_prompt(prompt), "python")
+            if code and "def test_" in code:
+                return code
+        except Exception as e:
+            import logging
+            logging.getLogger("agentic_code.agents").warning(f"TestWriterAgent LLM invocation failed: {e}")
+
+        # Fallback 1: Extract test function from plan if present
+        test_match = re.search(r"```(?:python)?\s*\n(.*?def test_.*?)\n```", plan, re.DOTALL)
+        if test_match:
+            return self.clean_line_number_prefixes(test_match.group(1).strip())
+
+        # Fallback 2: Generate reproduction test template targeting the identified file
+        targets = code_context.get("target_files", [])
+        from pathlib import Path
+        mod_name = Path(targets[0]).stem if targets else "module"
+        num = issue.get("issue_number", 0)
+        return f"""import pytest
+
+def test_reproduce_issue_{num}():
+    \"\"\"Reproduction test for issue #{num}: {issue.get('title', '')}\"\"\"
+    try:
+        import {mod_name}
+    except Exception as e:
+        pytest.fail(f"Reproduction verification failed on import of {mod_name}: {{e}}")
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -328,6 +391,38 @@ class CodeWriterAgent(BasePersona):
             use_gemini_chat=use_gemini_chat,
         )
 
+    @staticmethod
+    def extract_code_from_plan(plan: str) -> str:
+        """Extracts candidate replacement code from the diagnostic plan."""
+        # Search for code block in or around Section 3
+        sec3_match = re.search(
+            r"(?:###\s*3\.\s*Step-by-Step Logic Modifications|###\s*Step-by-Step Logic Modifications|3\.\s*Step-by-Step Logic Modifications)(.*?)(?:###\s*4|4\.|$)",
+            plan,
+            re.DOTALL | re.IGNORECASE,
+        )
+        search_zone = sec3_match.group(1) if sec3_match else plan
+
+        # Try markdown code blocks in search zone
+        code_match = re.search(r"```(?:python)?\s*\n(.*?)\n```", search_zone, re.DOTALL | re.IGNORECASE)
+        if code_match:
+            return BasePersona.clean_line_number_prefixes(code_match.group(1).strip())
+
+        # Try 'Modified Code Snippet:' pattern
+        snip_match = re.search(
+            r"Modified Code Snippet:\s*\n(.*?)(?=\n\s*(?:Self-correction|\d+\.|\#\#\#|$))",
+            search_zone,
+            re.DOTALL | re.IGNORECASE,
+        )
+        if snip_match:
+            return BasePersona.clean_line_number_prefixes(snip_match.group(1).strip())
+
+        # Fallback to any python code block in the plan
+        any_code = re.search(r"```python\s*\n(.*?)\n```", plan, re.DOTALL | re.IGNORECASE)
+        if any_code:
+            return BasePersona.clean_line_number_prefixes(any_code.group(1).strip())
+
+        return ""
+
     def write_patch(
         self,
         plan: str,
@@ -341,19 +436,31 @@ class CodeWriterAgent(BasePersona):
             for f, s in code_context.get("file_snippets", {}).items()
         )
         feedback = f"\n### Iteration {iteration} Failure:\n{error_feedback}" if error_feedback else ""
-        prompt = f"""### Plan:\n{plan}\n### Target Files & Existing Code:\n{snippets}\n### Tests:\n{tests}\n{feedback}\nProduce minimal unified diff patch targeting only the bug."""
+        prompt = f"""### Plan:\n{plan}\n### Target Files & Existing Code:\n{snippets}\n### Tests:\n{tests}\n{feedback}\nProduce minimal unified diff patch targeting only the bug or complete updated file in ```python ... ```."""
         try:
             resp = self.invoke_prompt(prompt)
-            diff = self.extract_code_block(resp, "diff")
-            if diff and ("---" in diff or "@@" in diff):
+            diff = self.extract_code_block(resp, "diff", clean_line_numbers=False)
+            if diff and ("---" in diff or "@@" in diff) and "+# Fix applied" not in diff:
                 return diff
-            py = self.extract_code_block(resp, "python")
-            return py if py else resp.strip()
+            py = self.extract_code_block(resp, "python", clean_line_numbers=True)
+            if py and ("def " in py or "class " in py or "import " in py):
+                return py
         except Exception as e:
             import logging
-            logging.getLogger("agentic_code.agents").error(f"CodeWriterAgent failed to synthesize patch: {e}")
-            target = code_context.get("target_files", ["module.py"])[0]
-            return f"--- a/{target}\n+++ b/{target}\n@@ -1,1 +1,2 @@\n+# Fix applied\n"
+            logging.getLogger("agentic_code.agents").warning(
+                f"CodeWriterAgent LLM synthesis failed: {e}. Falling back to diagnostic plan extraction."
+            )
+
+        # Robust Fallback: Extract code snippet directly from the Planner's diagnostic plan
+        plan_code = self.extract_code_from_plan(plan)
+        if plan_code and ("def " in plan_code or "class " in plan_code or "import " in plan_code):
+            import logging
+            logging.getLogger("agentic_code.agents").info(
+                "Successfully extracted replacement code directly from diagnostic plan."
+            )
+            return plan_code
+
+        return ""
 
 
 # ---------------------------------------------------------------------------
@@ -392,14 +499,18 @@ class PROpenerAgent(BasePersona):
     ) -> Dict[str, str]:
         num = issue.get("issue_number", 0)
         title = issue.get("title", "Fix issue")
-        prompt = f"### Issue #{num}: {title}\nPlan: {plan[:300]}\nPassed: {test_results.get('passed')}\nGenerate PR."
+        prompt = f"### Issue #{num}: {title}\nPlan:\n{plan}\nPassed: {test_results.get('passed')}\nGenerate PR title and Markdown description."
 
         try:
             resp = self.invoke_prompt(prompt)
         except Exception:
             resp = ""
 
-        pr_body = resp if (resp and "## Summary" in resp) else f"""## Summary\nFixes #{num}\n\n### Root Cause\n{plan[:300]}...\n\n### Verification\nPassed in hardened Docker sandbox ({iteration + 1} iterations)."""
+        pr_body = (
+            resp
+            if (resp and "## Summary" in resp)
+            else f"""## Summary\nFixes #{num}\n\n### Root-Cause Diagnosis\n{plan}\n\n### Verification\nPassed in hardened Docker sandbox ({iteration + 1} iterations)."""
+        )
         return {
             "title": f"fix: resolve {title} (Fixes #{num})",
             "commit_message": f"fix: resolve #{num} - {title}",

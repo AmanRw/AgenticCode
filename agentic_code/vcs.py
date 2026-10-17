@@ -6,6 +6,7 @@ and GitHub API communication via PyGithub.
 
 import logging
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -208,6 +209,8 @@ class GitManager:
         clean_text = "\n".join(clean_lines[start_idx:]).strip() + "\n"
 
         if ("--- " in clean_text and "+++ " in clean_text) or "@@" in clean_text:
+            if "+# Fix applied" in clean_text and len(clean_text.strip().splitlines()) <= 4:
+                raise GitOperationError("Patch only contains dummy comment '# Fix applied'.")
             with tempfile.NamedTemporaryFile("w", suffix=".patch", delete=False, encoding="utf-8") as f:
                 f.write(clean_text)
                 tmp_patch = f.name
@@ -247,6 +250,9 @@ class GitManager:
                 matches = list(self.repo_path.glob(f"**/{Path(target_file).name}"))
                 if matches:
                     target_path = matches[0]
+            clean_text = re.sub(r"^\s*\d+[:|]\s?", "", clean_text, flags=re.MULTILINE)
+            if clean_text.strip() in ("# Fix applied", "+# Fix applied"):
+                raise GitOperationError("Patch only contains dummy comment '# Fix applied'.")
             if target_path.exists() and ("def " in clean_text or "class " in clean_text or "import " in clean_text):
                 logger.info(f"Patch is full code; applying directly to target file: {target_path}")
                 target_path.write_text(clean_text.rstrip() + "\n", encoding="utf-8")

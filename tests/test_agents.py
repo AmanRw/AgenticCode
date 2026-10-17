@@ -216,3 +216,54 @@ def test_gemini_chat_afc_solution_a():
     mock_chat.send_message.assert_called_once_with("Find the relevant files")
     assert '{"target_files": ["main.py"]}' in res
 
+
+def test_code_writer_extract_code_from_plan():
+    plan_with_snippet = """1. Identified Bug / Failure Mode
+ZeroDivisionError on division by zero.
+3. Step-by-Step Logic Modifications
+Modified Code Snippet:
+
+   1: def operation(a,b,op):
+   2:     if op=='+':
+   3:         return a+b
+   4:     elif op=='-':
+   5:         return a-b
+   6:     elif op=='*':
+   7:         return a*b
+   8:     elif op=='/':
+   9:         if b == 0:
+  10:             return "Cannot divide by zero"
+  11:         else:
+  12:             return a/b
+  13:     else:
+  14:         return 'Invalid operation'
+
+4. Requirements for Reproduction and Regression Tests
+"""
+    extracted = CodeWriterAgent.extract_code_from_plan(plan_with_snippet)
+    assert "def operation(a,b,op):" in extracted
+    assert 'return "Cannot divide by zero"' in extracted
+    assert "   1:" not in extracted
+    assert "  10:" not in extracted
+
+
+def test_code_writer_fallback_when_llm_fails():
+    from unittest.mock import patch
+    plan_with_snippet = """3. Step-by-Step Logic Modifications
+```python
+def operation(a,b,op):
+    if b == 0 and op == '/':
+        return "Cannot divide by zero"
+    return a / b
+```"""
+    agent = CodeWriterAgent()
+    with patch.object(BasePersona, "invoke_prompt", side_effect=RuntimeError("Rate limit / 429")):
+        patch_result = agent.write_patch(
+            plan=plan_with_snippet,
+            code_context={"target_files": ["simpleCalc.py"], "file_snippets": {}},
+            tests="",
+        )
+    assert "def operation(a,b,op):" in patch_result
+    assert "Fix applied" not in patch_result
+
+

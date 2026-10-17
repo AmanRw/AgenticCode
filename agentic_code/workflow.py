@@ -180,12 +180,16 @@ def node_code_writer(state: AgentState) -> Dict[str, Any]:
         # Apply patch to repository working tree
         target_files = code_context.get("target_files", [])
         primary_target = target_files[0] if target_files else None
-        try:
-            with GitManager(repo_path) as git_mgr:
-                git_mgr.apply_patch(patch, target_file=primary_target)
-        except Exception as e:
-            logger.warning(f"Failed to apply patch in iteration {iteration}: {e}")
-            error_feedback = f"Failed to apply patch: {e}"
+        if not patch or not patch.strip() or patch.strip() in ("# Fix applied", "+# Fix applied"):
+            logger.warning(f"No valid patch synthesized in iteration {iteration}")
+            error_feedback = "No valid patch or substantive code modifications could be synthesized."
+        else:
+            try:
+                with GitManager(repo_path) as git_mgr:
+                    git_mgr.apply_patch(patch, target_file=primary_target)
+            except Exception as e:
+                logger.warning(f"Failed to apply patch in iteration {iteration}: {e}")
+                error_feedback = f"Failed to apply patch: {e}"
 
         dur = round(time.time() - start_t, 3)
         audit_logger.record_agent_decision(
@@ -292,10 +296,11 @@ def node_pr_opener(state: AgentState) -> Dict[str, Any]:
                 untracked = git_mgr.repo.untracked_files
                 has_changes = bool(diff_text.strip() or untracked)
 
-                # Scenario: Issue is already fixed or no code modifications required
-                if not has_changes or (already_fixed and not patch.strip()):
-                    logger.info(f"ℹ️ Issue #{issue.get('issue_number')} appears to be ALREADY RESOLVED. No changes to commit.")
-                    print(f"ℹ️ Issue #{issue.get('issue_number')} appears to be ALREADY RESOLVED or tests pass on unpatched code. No changes to commit.")
+                # Scenario: Issue is already fixed or no substantive code modifications required
+                is_dummy_change = (diff_text.strip() in ("+# Fix applied", "# Fix applied")) or (patch.strip() in ("+# Fix applied", "# Fix applied"))
+                if not has_changes or (already_fixed and not patch.strip()) or is_dummy_change:
+                    logger.info(f"ℹ️ Issue #{issue.get('issue_number')} appears to be ALREADY RESOLVED or no substantive changes to commit.")
+                    print(f"ℹ️ Issue #{issue.get('issue_number')} appears to be ALREADY RESOLVED, tests pass on unpatched code, or no substantive changes to commit.")
 
                     if settings.GITHUB_TOKEN and is_remote_repo:
                         try:

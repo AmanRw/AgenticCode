@@ -157,3 +157,30 @@ def test_github_client_operations_mocked():
             error_feedback="AssertionError: Expected ValueError",
         )
         assert "issuecomment-99" in fail_url
+
+
+def test_git_manager_rejects_dummy_patch():
+    import pytest
+    from agentic_code.vcs import GitOperationError
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        repo_path = Path(tmpdir)
+        repo = git.Repo.init(repo_path)
+        repo.config_writer().set_value("user", "name", "Test").release()
+        repo.config_writer().set_value("user", "email", "test@example.com").release()
+        file_p = repo_path / "simpleCalc.py"
+        file_p.write_text("def op(a, b): return a + b\n", encoding="utf-8")
+        repo.git.add("-A")
+        repo.git.commit("-m", "Initial")
+        repo.close()
+
+        with GitManager(repo_path) as mgr:
+            # 1. Reject dummy unified diff
+            dummy_diff = "--- a/simpleCalc.py\n+++ b/simpleCalc.py\n@@ -1,1 +1,2 @@\n+# Fix applied\n"
+            with pytest.raises(GitOperationError):
+                mgr.apply_patch(dummy_diff, target_file="simpleCalc.py")
+
+            # 2. Reject dummy comment code
+            with pytest.raises(GitOperationError):
+                mgr.apply_patch("# Fix applied", target_file="simpleCalc.py")
+
