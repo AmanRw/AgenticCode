@@ -117,7 +117,7 @@ def node_reproduction_verifier(state: AgentState) -> Dict[str, Any]:
             test_target = "test_reproduce_issue.py"
         else:
             test_target = "test_reproduce_issue.py"
-        cmd = f"pytest -v {test_target}"
+        cmd = f"pytest -v -o cache_dir=/tmp/.pytest_cache {test_target}".strip()
         results = sandbox.execute_command(cmd)
 
         audit_logger.record_sandbox_trace(
@@ -180,16 +180,34 @@ def node_code_writer(state: AgentState) -> Dict[str, Any]:
         # Apply patch to repository working tree
         target_files = code_context.get("target_files", [])
         primary_target = target_files[0] if target_files else None
-        if not patch or not patch.strip() or patch.strip() in ("# Fix applied", "+# Fix applied"):
-            logger.warning(f"No valid patch synthesized in iteration {iteration}")
-            error_feedback = "No valid patch or substantive code modifications could be synthesized."
-        else:
+        patch_applied = False
+
+        if patch and patch.strip() and patch.strip() not in ("# Fix applied", "+# Fix applied"):
             try:
                 with GitManager(repo_path) as git_mgr:
                     git_mgr.apply_patch(patch, target_file=primary_target)
+                patch_applied = True
             except Exception as e:
-                logger.warning(f"Failed to apply patch in iteration {iteration}: {e}")
+                logger.warning(f"Failed to apply patch in iteration {iteration}: {e}. Attempting diagnostic plan fallback.")
                 error_feedback = f"Failed to apply patch: {e}"
+
+        # If diff patch failed to apply or was dummy, fall back to applying code directly from diagnostic plan
+        if not patch_applied:
+            plan_code = CodeWriterAgent.extract_code_from_plan(plan)
+            if plan_code and primary_target:
+                try:
+                    with GitManager(repo_path) as git_mgr:
+                        if git_mgr.apply_full_code(primary_target, plan_code):
+                            patch = plan_code
+                            patch_applied = True
+                            error_feedback = None
+                            logger.info(f"Successfully applied diagnostic plan code fallback to {primary_target}")
+                except Exception as fb_err:
+                    logger.warning(f"Failed to apply plan code fallback: {fb_err}")
+                    error_feedback = f"Failed to apply patch: {error_feedback or fb_err}"
+
+        if not patch_applied and not error_feedback:
+            error_feedback = "No valid patch or substantive code modifications could be synthesized or applied."
 
         dur = round(time.time() - start_t, 3)
         audit_logger.record_agent_decision(
@@ -221,7 +239,7 @@ def node_sandbox_verifier(state: AgentState) -> Dict[str, Any]:
         else:
             test_target = ""
 
-        cmd = f"pytest -v {test_target}".strip()
+        cmd = f"pytest -v -o cache_dir=/tmp/.pytest_cache {test_target}".strip()
         results = sandbox.execute_command(cmd)
 
         audit_logger.record_sandbox_trace(

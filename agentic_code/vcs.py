@@ -179,19 +179,71 @@ class GitManager:
                     content_modified = True
                 else:
                     norm_old = "\n".join(line_str.strip() for line_str in old_lines)
+                    matched_idx = -1
+                    # 1. Try trimmed lines match
                     for idx in range(len(file_lines) - len(old_lines) + 1):
                         window = "\n".join(file_lines[idx : idx + len(old_lines)][i].strip() for i in range(len(old_lines)))
                         if window == norm_old:
-                            file_lines[idx : idx + len(old_lines)] = new_lines
-                            original_content = "\n".join(file_lines)
-                            content_modified = True
+                            matched_idx = idx
                             break
+
+                    # 2. Try whitespace-insensitive match (stripping all internal whitespace)
+                    if matched_idx == -1 and old_lines:
+                        no_ws_old = "\n".join(re.sub(r"\s+", "", l) for l in old_lines if l.strip())
+                        if no_ws_old:
+                            for idx in range(len(file_lines) - len(old_lines) + 1):
+                                win_lines = file_lines[idx : idx + len(old_lines)]
+                                no_ws_win = "\n".join(re.sub(r"\s+", "", l) for l in win_lines if l.strip())
+                                if no_ws_win == no_ws_old:
+                                    matched_idx = idx
+                                    break
+
+                    # 3. Fuzzy anchor match: locate the line being replaced
+                    if matched_idx == -1 and not content_modified:
+                        removed_lines = [l for l in old_lines if l.strip()]
+                        if removed_lines:
+                            target_needle = re.sub(r"\s+", "", removed_lines[-1])
+                            for idx, f_line in enumerate(file_lines):
+                                if re.sub(r"\s+", "", f_line) == target_needle:
+                                    leading_indent = len(f_line) - len(f_line.lstrip())
+                                    new_lines_indented = []
+                                    for nl in new_lines:
+                                        new_lines_indented.append(" " * leading_indent + nl.lstrip() if nl.strip() else "")
+                                    file_lines[idx : idx + 1] = new_lines_indented
+                                    original_content = "\n".join(file_lines)
+                                    content_modified = True
+                                    break
+
+                    if matched_idx != -1 and not content_modified:
+                        file_lines[matched_idx : matched_idx + len(old_lines)] = new_lines
+                        original_content = "\n".join(file_lines)
+                        content_modified = True
 
             if content_modified:
                 target_file.write_text(original_content.rstrip() + "\n", encoding="utf-8")
                 applied_any = True
 
         return applied_any
+
+    def apply_full_code(self, target_file: str, code: str) -> bool:
+        """Applies replacement code directly to target file, replacing function or full file."""
+        if not self.repo_path or not code.strip():
+            return False
+
+        target_path = (self.repo_path / target_file).resolve()
+        if not target_path.exists():
+            matches = list(self.repo_path.glob(f"**/{Path(target_file).name}"))
+            if matches:
+                target_path = matches[0]
+            else:
+                return False
+
+        clean_code = re.sub(r"^\s*\d+[:|]\s?", "", code.strip(), flags=re.MULTILINE)
+        if clean_code in ("# Fix applied", "+# Fix applied") or len(clean_code.splitlines()) < 2:
+            return False
+
+        target_path.write_text(clean_code.rstrip() + "\n", encoding="utf-8")
+        return True
 
     def apply_patch(self, patch_content: str, target_file: Optional[str] = None) -> None:
         """Applies a unified diff patch with whitespace fix, 3-way merge fallback, and Python hunk fallback."""

@@ -264,7 +264,7 @@ class DockerSandbox:
                 error_summary=str(e),
             )
 
-    def run_tests(self, test_command: str = "pytest -v") -> TestResults:
+    def run_tests(self, test_command: str = "pytest -v -o cache_dir=/tmp/.pytest_cache") -> TestResults:
         """Run tests inside the sandbox."""
         return self.execute_command(test_command)
 

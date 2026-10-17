@@ -163,3 +163,49 @@ def test_individual_nodes_execution():
             esc_res = node_escalation(state)
             assert "error_feedback" in esc_res
             assert "Escalated" in esc_res["error_feedback"]
+
+
+def test_code_writer_node_falls_back_to_plan_code_when_diff_fails():
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        repo_path = Path(tmpdir)
+        repo = git.Repo.init(repo_path)
+        repo.config_writer().set_value("user", "name", "Test Runner").release()
+        repo.config_writer().set_value("user", "email", "test@example.com").release()
+
+        calc_file = repo_path / "simpleCalc.py"
+        calc_file.write_text("def operation(a, b, op):\n    return a / b\n", encoding="utf-8")
+        repo.git.add("-A")
+        repo.git.commit("-m", "Initial commit")
+        repo.close()
+
+        state: AgentState = {
+            "issue": {"title": "ZeroDivisionError", "body": "division by zero", "issue_number": 1},
+            "repo_path": str(repo_path),
+            "code_context": {"target_files": ["simpleCalc.py"], "file_snippets": {}},
+            "plan": """### 3. Step-by-Step Logic Modifications
+Modified Code Snippet:
+```python
+def operation(a, b, op):
+    if b == 0 and op == '/':
+        return "Cannot divide by zero"
+    return a / b
+```""",
+            "tests": "",
+            # Simulated invalid diff that fails git apply
+            "patch": "--- a/wrong_file.py\n+++ b/wrong_file.py\n@@ -1,1 +1,1 @@\n-x\n+y\n",
+            "test_results": {"passed": False, "exit_code": 1, "stdout": "", "stderr": ""},
+            "error_feedback": None,
+            "iteration": 0,
+            "max_iterations": 3,
+            "pr_url": None,
+        }
+
+        # Mock CodeWriterAgent to return the invalid diff
+        with patch("agentic_code.workflow.CodeWriterAgent.write_patch", return_value=state["patch"]):
+            res = node_code_writer(state)
+
+        # Verify that node_code_writer fell back to applying the plan's code
+        assert res["error_feedback"] is None
+        content = calc_file.read_text(encoding="utf-8")
+        assert 'return "Cannot divide by zero"' in content
+
